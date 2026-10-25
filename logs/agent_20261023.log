@@ -1,0 +1,54 @@
+2026-10-23 10:08:38,228 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 10:08:38,229 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 你好，我是小明，你是谁？
+2026-10-23 10:09:00,015 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 10:09:00,016 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我是谁？
+2026-10-23 10:09:01,387 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_id调用成功
+2026-10-23 10:09:01,388 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_id传入参数:{}
+2026-10-23 10:09:01,389 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_id调用成功
+2026-10-23 10:09:01,445 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 10:09:01,445 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 1009
+2026-10-23 10:09:16,095 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 10:09:16,096 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 你还记得我的名字吗？
+2026-10-23 10:21:02,735 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 10:21:02,736 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 请记住：我的设备编号是 A-123。只回复“收到”。
+2026-10-23 10:21:04,099 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 10:21:04,099 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我的设备编号是多少？
+2026-10-23 10:21:23,393 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 10:21:23,393 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我叫小明。只回复“收到”。
+2026-10-23 10:21:24,709 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 10:21:24,710 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我叫什么名字？请直接回答。
+2026-10-23 11:53:53,417 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 11:53:53,417 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 请记住我叫小红，只回复“收到”。
+2026-10-23 11:55:19,298 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 11:55:19,299 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 请记住我叫小红，只回复“收到”。
+2026-10-23 11:56:30,821 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 11:56:30,821 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 请记住我叫小红，只回复“收到”。
+2026-10-23 11:56:32,318 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 11:56:32,318 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我叫什么名字？请直接回答。
+2026-10-23 15:34:02,053 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 15:34:02,054 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 你还记得我是谁吗
+2026-10-23 15:34:03,574 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_id调用成功
+2026-10-23 15:34:03,575 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_id传入参数:{}
+2026-10-23 15:34:03,576 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_id调用成功
+2026-10-23 15:34:03,580 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 15:34:03,580 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 1009
+2026-10-23 15:48:49,739 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 15:48:49,739 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 请记住我叫小绿，只回复收到
+2026-10-23 15:49:09,467 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 15:49:09,468 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我叫什么名字？直接回答
+2026-10-23 15:58:13,448 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 15:58:13,449 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 你好，我叫小明，你是谁？
+2026-10-23 19:19:41,749 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 19:19:41,749 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我叫小明，我的用户ID是多少？
+2026-10-23 19:19:42,861 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_id调用成功
+2026-10-23 19:19:42,862 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_id传入参数:{}
+2026-10-23 19:19:42,863 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_id调用成功
+2026-10-23 19:19:42,866 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 19:19:42,867 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 1010
+2026-10-23 19:31:03,684 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-23 19:31:03,685 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 你还记得我是谁吗
+2026-10-23 19:31:05,577 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_id调用成功
+2026-10-23 19:31:05,578 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_id传入参数:{}
+2026-10-23 19:31:05,578 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_id调用成功
+2026-10-23 19:31:05,584 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-23 19:31:05,584 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 1006

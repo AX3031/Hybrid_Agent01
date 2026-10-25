@@ -1,0 +1,14 @@
+2026-09-27 17:25:00,928 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-09-27 17:25:00,928 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-09-27 17:32:36,179 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-09-27 17:32:36,179 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-09-27 17:32:37,756 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_location调用成功
+2026-09-27 17:32:37,756 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_location传入参数:{}
+2026-09-27 17:32:37,757 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_location调用成功
+2026-09-27 17:32:37,758 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-09-27 17:32:37,758 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 深圳
+2026-09-27 17:32:38,544 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-09-27 17:32:38,544 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '深圳'}
+2026-09-27 17:32:38,544 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-09-27 17:32:38,545 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有5条消息。
+2026-09-27 17:32:38,545 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市深圳天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低

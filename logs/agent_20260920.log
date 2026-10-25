@@ -1,0 +1,15 @@
+2026-09-20 10:11:06,888 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-09-20 10:11:06,888 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-09-20 10:11:07,907 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_location调用成功
+2026-09-20 10:11:07,908 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_location传入参数:{}
+2026-09-20 10:11:07,908 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_location调用成功
+2026-09-20 10:11:07,909 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-09-20 10:11:07,911 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '北京市'}
+2026-09-20 10:11:07,912 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-09-20 10:11:07,913 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有4条消息。
+2026-09-20 10:11:07,913 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市北京市天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低
+2026-09-20 10:11:09,875 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-09-20 10:11:09,875 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '合肥'}
+2026-09-20 10:11:09,875 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-09-20 10:11:09,876 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有6条消息。
+2026-09-20 10:11:09,876 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市合肥天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低

@@ -1,0 +1,64 @@
+2026-10-22 14:43:59,274 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-22 14:43:59,275 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-10-22 14:44:00,601 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_location调用成功
+2026-10-22 14:44:00,601 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_location传入参数:{}
+2026-10-22 14:44:00,602 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_location调用成功
+2026-10-22 14:44:00,603 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-22 14:44:00,606 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 深圳
+2026-10-22 14:44:02,622 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-10-22 14:44:02,623 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '深圳'}
+2026-10-22 14:44:02,624 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-10-22 14:44:02,624 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-10-22 14:44:02,624 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '深圳'}
+2026-10-22 14:44:02,625 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-10-22 14:44:02,626 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有6条消息。
+2026-10-22 14:44:02,626 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市深圳天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低
+2026-10-22 14:57:04,595 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-22 14:57:04,596 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-10-22 14:57:06,300 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_location调用成功
+2026-10-22 14:57:06,300 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_location传入参数:{}
+2026-10-22 14:57:06,301 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_location调用成功
+2026-10-22 14:57:06,302 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-22 14:57:06,302 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 杭州
+2026-10-22 14:57:07,032 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-10-22 14:57:07,032 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '杭州'}
+2026-10-22 14:57:07,033 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-10-22 14:57:07,033 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有5条消息。
+2026-10-22 14:57:07,034 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市杭州天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低
+2026-10-22 15:22:04,646 - agent - INFO - logger_handler.py:66 - 信息日志
+2026-10-22 15:22:04,646 - agent - ERROR - logger_handler.py:67 - 错误日志
+2026-10-22 15:22:04,646 - agent - WARNING - logger_handler.py:68 - 警告日志
+2026-10-22 15:22:04,646 - agent - DEBUG - logger_handler.py:69 - 调试日志
+2026-10-22 15:22:53,433 - agent - INFO - logger_handler.py:66 - 信息日志
+2026-10-22 15:22:53,433 - agent - ERROR - logger_handler.py:67 - 错误日志
+2026-10-22 15:22:53,433 - agent - WARNING - logger_handler.py:68 - 警告日志
+2026-10-22 15:22:53,434 - agent - DEBUG - logger_handler.py:69 - 调试日志
+2026-10-22 15:22:58,016 - agent - WARNING - agent_tools.py:110 - [fetch_external_data]未能检索到用户：1001在2025-01的使用记录数据
+2026-10-22 15:23:23,614 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-22 15:23:23,615 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-10-22 15:23:25,835 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_location调用成功
+2026-10-22 15:23:25,835 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_location传入参数:{}
+2026-10-22 15:23:25,835 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_location调用成功
+2026-10-22 15:23:25,836 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-22 15:23:25,836 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 深圳
+2026-10-22 15:23:26,723 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-10-22 15:23:26,723 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '深圳'}
+2026-10-22 15:23:26,723 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-10-22 15:23:26,724 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有5条消息。
+2026-10-22 15:23:26,724 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市深圳天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低
+2026-10-22 15:24:55,363 - agent - INFO - vector_store.py:85 - 加载知识库 D:\PyDocuments\project2\data\测试pdf2.pdf 内容已经存在知识库内，跳过
+2026-10-22 15:24:55,905 - agent - INFO - vector_store.py:107 - 【加载知识库】D:\PyDocuments\project2\data\测试文本.txt内容加载成功
+2026-10-22 15:33:42,604 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-22 15:33:42,604 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 我这里天气怎么样
+2026-10-22 15:33:43,857 - agent - INFO - middleware.py:20 - [tool monitor]工具get_user_location调用成功
+2026-10-22 15:33:43,858 - agent - INFO - middleware.py:21 - [tool monitor]工具get_user_location传入参数:{}
+2026-10-22 15:33:43,858 - agent - INFO - middleware.py:25 - [tool monitor]工具get_user_location调用成功
+2026-10-22 15:33:43,859 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有3条消息。
+2026-10-22 15:33:43,860 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 深圳
+2026-10-22 15:33:44,670 - agent - INFO - middleware.py:20 - [tool monitor]工具get_weather调用成功
+2026-10-22 15:33:44,670 - agent - INFO - middleware.py:21 - [tool monitor]工具get_weather传入参数:{'city': '深圳'}
+2026-10-22 15:33:44,671 - agent - INFO - middleware.py:25 - [tool monitor]工具get_weather调用成功
+2026-10-22 15:33:44,672 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有5条消息。
+2026-10-22 15:33:44,672 - agent - DEBUG - middleware.py:43 - [log_before_model]ToolMessage | 城市深圳天气为晴天，气温26摄氏度，空气湿度50%，南风1级，AQI21，最近6小时降雨概率极低
+2026-10-22 22:50:13,288 - agent - INFO - middleware.py:41 - [log_before_model]即将调用模型，带有1条消息。
+2026-10-22 22:50:13,289 - agent - DEBUG - middleware.py:43 - [log_before_model]HumanMessage | 请只回复两个字：你好

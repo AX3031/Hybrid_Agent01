@@ -1,0 +1,3 @@
+chat_model_name: qwen3.5-flash
+backup_chat_model_name: glm-5
+embedding_model_name: text-embedding-v4

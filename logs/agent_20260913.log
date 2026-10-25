@@ -1,0 +1,89 @@
+2026-09-13 21:31:03,416 - agent - INFO - vector_store.py:98 - 【加载知识库】D:\PyDocuments\project1\data\测试文本.txt内容加载成功
+2026-09-13 21:34:59,387 - agent - ERROR - vector_store.py:101 - 【加载知识库】D:\PyDocuments\project1\data\测试pdf.pdf加载失败，`pypdf` package not found, please install it with `pip install pypdf`
+Traceback (most recent call last):
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\parsers\pdf.py", line 358, in lazy_parse
+    import pypdf
+ModuleNotFoundError: No module named 'pypdf'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PyDocuments\project1\rag\vector_store.py", line 80, in load_document
+    documents: list[Document] = get_file_documents(path)
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\PyDocuments\project1\rag\vector_store.py", line 62, in get_file_documents
+    return pdf_loader(read_path)
+  File "D:\PyDocuments\project1\utils\file_handler.py", line 57, in pdf_loader
+    return PyPDFLoader(filepath, passwd).load()
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_core\document_loaders\base.py", line 43, in load
+    return list(self.lazy_load())
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\pdf.py", line 305, in lazy_load
+    yield from self.parser.lazy_parse(blob)
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\parsers\pdf.py", line 360, in lazy_parse
+    raise ImportError(
+        "`pypdf` package not found, please install it with `pip install pypdf`"
+    )
+ImportError: `pypdf` package not found, please install it with `pip install pypdf`
+2026-09-13 21:34:59,390 - agent - INFO - vector_store.py:76 - 加载知识库 D:\PyDocuments\project1\data\测试文本.txt 内容已经存在知识库内，跳过
+2026-09-13 21:35:33,048 - agent - ERROR - vector_store.py:101 - 【加载知识库】D:\PyDocuments\project1\data\测试pdf.pdf加载失败，Cannot read an empty file
+Traceback (most recent call last):
+  File "D:\PyDocuments\project1\rag\vector_store.py", line 80, in load_document
+    documents: list[Document] = get_file_documents(path)
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\PyDocuments\project1\rag\vector_store.py", line 62, in get_file_documents
+    return pdf_loader(read_path)
+  File "D:\PyDocuments\project1\utils\file_handler.py", line 57, in pdf_loader
+    return PyPDFLoader(filepath, passwd).load()
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_core\document_loaders\base.py", line 43, in load
+    return list(self.lazy_load())
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\pdf.py", line 305, in lazy_load
+    yield from self.parser.lazy_parse(blob)
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\parsers\pdf.py", line 383, in lazy_parse
+    pdf_reader = pypdf.PdfReader(pdf_file_obj, password=self.password)
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 151, in __init__
+    self._initialize_stream(stream)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 175, in _initialize_stream
+    self.read(stream)
+    ~~~~~~~~~^^^^^^^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 688, in read
+    self._basic_validation(stream)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 761, in _basic_validation
+    raise EmptyFileError("Cannot read an empty file")
+pypdf.errors.EmptyFileError: Cannot read an empty file
+2026-09-13 21:35:33,051 - agent - INFO - vector_store.py:76 - 加载知识库 D:\PyDocuments\project1\data\测试文本.txt 内容已经存在知识库内，跳过
+2026-09-13 21:37:30,409 - agent - ERROR - vector_store.py:101 - 【加载知识库】D:\PyDocuments\project1\data\测试pdf.pdf加载失败，Cannot read an empty file
+Traceback (most recent call last):
+  File "D:\PyDocuments\project1\rag\vector_store.py", line 80, in load_document
+    documents: list[Document] = get_file_documents(path)
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\PyDocuments\project1\rag\vector_store.py", line 62, in get_file_documents
+    return pdf_loader(read_path)
+  File "D:\PyDocuments\project1\utils\file_handler.py", line 57, in pdf_loader
+    return PyPDFLoader(filepath, passwd).load()
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_core\document_loaders\base.py", line 43, in load
+    return list(self.lazy_load())
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\pdf.py", line 305, in lazy_load
+    yield from self.parser.lazy_parse(blob)
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\langchain_community\document_loaders\parsers\pdf.py", line 383, in lazy_parse
+    pdf_reader = pypdf.PdfReader(pdf_file_obj, password=self.password)
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 151, in __init__
+    self._initialize_stream(stream)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 175, in _initialize_stream
+    self.read(stream)
+    ~~~~~~~~~^^^^^^^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 688, in read
+    self._basic_validation(stream)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\PyDocuments\project1\.venv\Lib\site-packages\pypdf\_reader.py", line 761, in _basic_validation
+    raise EmptyFileError("Cannot read an empty file")
+pypdf.errors.EmptyFileError: Cannot read an empty file
+2026-09-13 21:37:31,011 - agent - INFO - vector_store.py:98 - 【加载知识库】D:\PyDocuments\project1\data\测试pdf2.pdf内容加载成功
+2026-09-13 21:37:31,012 - agent - INFO - vector_store.py:76 - 加载知识库 D:\PyDocuments\project1\data\测试文本.txt 内容已经存在知识库内，跳过
+2026-09-13 21:37:57,591 - agent - INFO - vector_store.py:76 - 加载知识库 D:\PyDocuments\project1\data\测试pdf2.pdf 内容已经存在知识库内，跳过
+2026-09-13 21:37:57,591 - agent - INFO - vector_store.py:76 - 加载知识库 D:\PyDocuments\project1\data\测试文本.txt 内容已经存在知识库内，跳过
