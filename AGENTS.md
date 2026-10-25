@@ -22,9 +22,9 @@
 
 - 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`architecture.svg` 工具层。
 - 新增/删除中间件 → `ARCHITECTURE.md` 5.2/8/11、`architecture.svg` 编排层。
-- 改 RAG → `ARCHITECTURE.md` 7、`rag-pipeline.svg`。
+- 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`README.md` 能力表、`architecture.svg` 工具层。
 - 改配置 → `ARCHITECTURE.md` 9、`README.md` 配置速查。
-- 改模型/依赖/目录 → 对应技术栈、拓扑与目录树章节；**图也要同步**：`architecture.svg` 的模型/存储层节点与副标题（改动落在 RAG 链上的模型时，再同步 `rag-pipeline.svg` 的 ChatModel 节点）。
+- 改模型/依赖/目录 → 对应技术栈、拓扑与目录树章节；**图也要同步**：`architecture.svg` 的模型/存储层节点与副标题。
 - 任何值得记录的改动（新增/变更/废弃/移除/修复）→ 归入 `CHANGELOG.md` 的 `## [Unreleased]`，按 Keep a Changelog 分组（Added / Changed / Deprecated / Removed / Fixed / Security）写英文标题 + 中文描述；发布时才改成版本标题。不要把增量日志写进架构正文。
 
 ## 冲突处理

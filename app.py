@@ -1,13 +1,14 @@
-import time
+import json
 import uuid
+from typing import Iterator
 
 import streamlit as st
 
-from agent.react_agent import ReactAgent
+from agent.react_agent import AgentEvent, ReactAgent
 from memorys.memory_factory import DEFAULT_MEMORY_MODE, MEMORY_MODE_LABELS
 
 DEFAULT_SESSION_ID = "user_001"
-GREETING = {"role": "assistant", "content": "你好，有什么可以帮助你？"}
+GREETING = {"role": "assistant", "content": "你好，我可以查看这台电脑的信息，也能帮你整理文件、执行命令。你想做什么？"}
 
 # 记忆按钮上显示的精简名称
 MODE_SHORT_LABELS = {
@@ -45,8 +46,65 @@ def _shorten(text: str, limit: int = 14) -> str:
     return text if len(text) <= limit else f"{text[:limit]}…"
 
 
+def _render_events(event_stream: Iterator[AgentEvent]) -> str:
+    """渲染 Agent 事件流：文本直接显示，危险操作暂存到 session_state 等待确认。"""
+    placeholder = st.chat_message("assistant").empty()
+    buffer = ""
+
+    for event in event_stream:
+        if event.type == "text":
+            buffer += event.content
+            placeholder.markdown(buffer)
+        elif event.type == "interrupt":
+            st.session_state["pending_hitl"] = {"actions": event.action_requests}
+
+    if not buffer:
+        placeholder.empty()
+    return buffer.strip()
+
+
+def _render_hitl_block(agent: ReactAgent) -> None:
+    """渲染待确认操作卡片；用户批准或拒绝后继续执行被挂起的工具调用。"""
+    pending = st.session_state.get("pending_hitl")
+    if not pending:
+        return
+
+    actions = pending.get("actions", [])
+    session_id = st.session_state["session_id"]
+
+    with st.container(border=True):
+        st.warning("以下操作会修改你的电脑，请确认后执行：")
+        for action in actions:
+            st.code(
+                json.dumps(
+                    {"tool": action.get("name"), "args": action.get("args")},
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                language="json",
+            )
+
+        col_approve, col_reject = st.columns(2)
+        approved = col_approve.button("批准执行", type="primary", use_container_width=True)
+        rejected = col_reject.button("拒绝执行", use_container_width=True)
+
+    if not (approved or rejected):
+        return
+
+    if approved:
+        decisions = [{"type": "approve"} for _ in actions]
+    else:
+        decisions = [{"type": "reject", "message": "用户拒绝执行该操作"} for _ in actions]
+
+    st.session_state.pop("pending_hitl", None)
+    content = _render_events(agent.resume_stream(decisions, thread_id=session_id))
+    if content:
+        st.session_state["message"].append({"role": "assistant", "content": content})
+    st.rerun()
+
+
 # 标题
-st.title("机器人智能客服")
+st.title("电脑助手")
 st.divider()
 
 if "session_id" not in st.session_state:
@@ -85,7 +143,7 @@ with st.bottom:
             selected_mode = MEMORY_MODE_LABELS[selected_label]
             st.caption(f"{MEMORY_MODE_HINTS[selected_mode]}")
 
-        prompt = st.chat_input("请输入你的问题", width="stretch")
+        prompt = st.chat_input("告诉我你想在这台电脑上做什么", width="stretch")
 
 selected_mode = MEMORY_MODE_LABELS[selected_label]
 
@@ -111,6 +169,7 @@ mode_changed = st.session_state.get("memory_mode") != selected_mode
 if mode_changed:
     st.session_state["memory_mode"] = selected_mode
     st.session_state.pop("agent", None)
+    st.session_state.pop("pending_hitl", None)
 
 # 新建会话：使用新的随机 ID，并立即刷新界面
 if new_session:
@@ -124,6 +183,7 @@ entered_session_id = st.session_state[f"session_id_input_{st.session_state['sess
 session_changed = bool(entered_session_id) and entered_session_id != st.session_state["session_id"]
 if session_changed:
     st.session_state["session_id"] = entered_session_id
+    st.session_state.pop("pending_hitl", None)
 
 # 创建 Agent；PostgreSQL 连接失败时回退到短期记忆，避免页面无法使用
 if "agent" not in st.session_state:
@@ -155,30 +215,24 @@ if st.session_state.get("memory_error"):
 for message in st.session_state["message"]:
     st.chat_message(message["role"]).write(message["content"])
 
+# 有待确认的危险操作时，在消息区展示确认卡片
+_render_hitl_block(st.session_state["agent"])
+
 if prompt:
     st.chat_message("user").write(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
 
-    response_messages = []
-    with st.spinner("智能客服思考中..."):
+    with st.spinner("正在处理..."):
         try:
-            res_stream = st.session_state["agent"].execute_stream(
-                prompt, thread_id=st.session_state["session_id"]
+            content = _render_events(
+                st.session_state["agent"].execute_stream(
+                    prompt, thread_id=st.session_state["session_id"]
+                )
             )
-
-            def capture(generator, cache_list):
-
-                for chunk in generator:
-                    cache_list.append(chunk)
-
-                    for char in chunk:
-                        time.sleep(0.01)
-                        yield char
-
-            st.chat_message("assistant").write_stream(capture(res_stream, response_messages))
         except Exception as exc:
             st.error(f"生成回答失败：{exc}")
+            content = ""
 
-    if response_messages:
-        st.session_state["message"].append({"role": "assistant", "content": response_messages[-1].strip()})
+    if content:
+        st.session_state["message"].append({"role": "assistant", "content": content})
     st.rerun()

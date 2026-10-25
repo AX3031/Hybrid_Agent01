@@ -13,6 +13,10 @@
 - `agent/react_agent.py`：`ReactAgent(memory_mode=...)`、`clear_memory(thread_id)`、`load_ui_messages(thread_id)`；`_default_memory_mode()` 兼容读取 `USE_POSTGRES_CHECKPOINTER`。
 - `app.py`：对话输入框左侧的记忆按钮（`st.bottom` + 水平容器 + `st.popover` + `st.radio`），点击弹出三种记忆方式列表；侧边栏「会话管理」= 会话 ID、新建会话、清空记忆。
 - `CHANGELOG.md`。
+- `agent/tools/os_tools.py`：13 个电脑操作工具 —— 只读（`get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes`）与有副作用（`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`）。
+- `agent/react_agent.py`：`CONFIRM_TOOLS` + `HumanInTheLoopMiddleware`，高危工具调用前挂起等待确认；新增 `AgentEvent` 与 `resume_stream(decisions)`。
+- `app.py`：`_render_events` / `_render_hitl_block`，渲染确认卡片并支持批准/拒绝。
+- `config/model.yml`：由 `config/rag.yml` 重命名而来，只保留对话与备用对话模型。
 
 ### Changed
 
@@ -23,10 +27,17 @@
 - 记忆方式的界面文案（`memorys/memory_factory.py`、`app.py`）：选项改为「短期记忆（默认，不存档记忆）/ 本地记忆（以JSON格式本地存档）/ PostgreSQL（存档入数据库，需配置）」；短期记忆的提示补上“刷新页面”也会丢（Streamlit 刷新会重建 `st.session_state` 与 Agent）；弹层 caption 不再重复显示会话 ID。
 - 文档同步：`README.md`（能力表、4.5 启动、配置速查、目录树与文档索引）、`docs/PROJECT_OVERVIEW.md`（分层、关键约束、问题索引）、`docs/ARCHITECTURE.md`（5.2、5.3、6.4、9.2、9.6、12、13.4、16.1、16.3）、`docs/architecture.svg`（记忆方式说明、文件型会话历史状态）。
 - `.gitignore`：忽略运行时生成的 `memorys/chat_history/`。
+- 项目定位由“机器人智能客服”调整为“本地电脑助手”；`prompts/main_prompt.txt` 重写为电脑操作规则与安全边界。
+- `ReactAgent` 改用 `stream_mode=["values", "updates"]`，同时捕获文本与 `__interrupt__`。
+- `model/factory.py` 移除 `EmbeddingsFactory` / `embed_model`，`rag_conf` 改名 `model_conf`。
+- 依赖：移除 `dashscope`、`langchain-chroma`、`langchain-community`、`pypdf`；新增 `psutil`。
 
 ### Removed
 
 - `agent/react_agent.py` 的 `_build_checkpointer()`：checkpointer 的创建改由 `memorys/memory_factory.py` 负责。
+- RAG 子系统：`rag/rag_service.py`、`rag/vector_store.py`、`rag_summarize` 工具、`prompts/rag_summarize.txt`、`config/chroma.yml`、`utils/file_handler.py`、`utils/prompt_loader.load_rag_prompts`。
+- 数据与产物：`chroma_db/`、`md5.text`、`data/测试文本.txt`、`data/测试pdf2.pdf`、`docs/rag-pipeline.svg`。
+- `prompts/main_prompt.txt` / `report_prompt.txt` 中的知识库/RAG 文案。
 
 ### Fixed
 

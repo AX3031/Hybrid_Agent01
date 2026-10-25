@@ -74,9 +74,9 @@ pii_middleware_phone = PIIMiddleware(
 
 # 主模型调用失败时自动切换到备用模型
 from model.factory import chat_model, ChatModelFactory
-from utils.config_handler import rag_conf
+from utils.config_handler import model_conf
 
 model_fallback_middleware = ModelFallbackMiddleware(
     chat_model,
-    ChatModelFactory().generator(model_name=rag_conf["backup_chat_model_name"]),
+    ChatModelFactory().generator(model_name=model_conf["backup_chat_model_name"]),
 )

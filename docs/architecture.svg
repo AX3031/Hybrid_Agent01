@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040" role="img" aria-labelledby="archTitle archDesc">
-  <title id="archTitle">机器人智能客服 Agent 系统架构总览</title>
-  <desc id="archDesc">分层架构：Streamlit 表现层、LangChain create_agent 编排层、工具层、RAG 服务层、模型与存储层，以及右侧配置与基础设施。</desc>
+  <title id="archTitle">本地电脑助手 Agent 系统架构总览</title>
+  <desc id="archDesc">分层架构：Streamlit 表现层、LangChain create_agent 编排层、电脑操作工具层、人工确认与提示词服务层、模型与存储层，以及右侧配置与基础设施。</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
@@ -16,8 +16,8 @@
   <rect width="1600" height="1040" fill="#f8fafc"/>
 
   <g font-family="Microsoft YaHei, PingFang SC, Segoe UI, sans-serif">
-    <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">机器人智能客服 Agent · 系统架构总览</text>
-    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· DashScope 模型 · Chroma RAG · Streamlit UI</text>
+    <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">本地电脑助手 Agent · 系统架构总览</text>
+    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 文件系统 / psutil · 高危操作人工确认 · Streamlit UI</text>
 
     <!-- Presentation layer -->
     <rect x="40" y="104" width="1120" height="88" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
@@ -37,7 +37,7 @@
     <rect x="64" y="240" width="330" height="76" rx="10" fill="#ffffff" stroke="#8b5cf6" filter="url(#shadow)"/>
     <text x="80" y="266" font-size="16" font-weight="700" fill="#0f172a">ReactAgent</text>
     <text x="80" y="288" font-size="11.5" fill="#475569">create_agent() → CompiledStateGraph</text>
-    <text x="80" y="306" font-size="11.5" fill="#475569">execute_stream(query)</text>
+    <text x="80" y="306" font-size="11.5" fill="#475569">execute_stream / resume_stream</text>
 
     <rect x="420" y="232" width="700" height="92" rx="10" fill="#ffffff" stroke="#c4b5fd"/>
     <text x="436" y="252" font-size="12.5" font-weight="700" fill="#5b21b6">Agent Middleware（LangChain 中间件）</text>
@@ -50,38 +50,41 @@
     <rect x="864" y="264" width="240" height="44" rx="8" fill="#faf5ff" stroke="#d8b4fe"/>
     <text x="874" y="283" font-size="12" font-weight="600" fill="#0f172a">report_prompt_switch</text>
     <text x="874" y="299" font-size="10.5" fill="#64748b">按 context 切换系统提示词</text>
-    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ PIIMiddleware（邮箱 redact / 手机号 mask） · ModelFallbackMiddleware（主模型失败切备用）</text>
+    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ PIIMiddleware（脱敏） · ModelFallbackMiddleware（降级） · HumanInTheLoopMiddleware（高危确认）</text>
 
     <path d="M310 178 V240" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M394 278 H420" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
     <!-- Tool layer -->
     <rect x="40" y="352" width="1120" height="194" rx="14" fill="#ecfdf5" stroke="#a7f3d0"/>
-    <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（8 个 @tool 注册，模型按需调用）</text>
-    <text x="64" y="530" font-size="10.5" fill="#047857">另有 web_search_baidu：百度联网搜索，解析 web / image / video 结果</text>
+    <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（20 个 @tool 注册，模型按需调用）</text>
+    <text x="64" y="530" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认），以及天气、用户、CSV、报告、联网搜索等业务工具</text>
 
     <rect x="64" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
-    <text x="76" y="408" font-size="13.5" font-weight="600" fill="#0f172a">rag_summarize</text>
-    <text x="76" y="425" font-size="10.5" fill="#64748b">向量库检索 + 总结</text>
+    <text x="76" y="408" font-size="13.5" font-weight="600" fill="#0f172a">get_system_info</text>
+    <text x="76" y="425" font-size="10.5" fill="#64748b">系统 / 内存 / 磁盘</text>
     <rect x="330" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
-    <text x="342" y="408" font-size="13.5" font-weight="600" fill="#0f172a">get_weather</text>
-    <text x="342" y="425" font-size="10.5" fill="#64748b">天气（当前为模拟数据）</text>
+    <text x="342" y="408" font-size="13.5" font-weight="600" fill="#0f172a">list_directory</text>
+    <text x="342" y="425" font-size="10.5" fill="#64748b">列目录 / 文件大小</text>
     <rect x="596" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
-    <text x="608" y="408" font-size="13.5" font-weight="600" fill="#0f172a">get_user_location</text>
-    <text x="608" y="425" font-size="10.5" fill="#64748b">用户城市（模拟）</text>
+    <text x="608" y="408" font-size="13.5" font-weight="600" fill="#0f172a">read_text_file</text>
+    <text x="608" y="425" font-size="10.5" fill="#64748b">读取文本（分段）</text>
     <rect x="862" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
-    <text x="874" y="408" font-size="13.5" font-weight="600" fill="#0f172a">get_user_id</text>
-    <text x="874" y="425" font-size="10.5" fill="#64748b">用户 ID（模拟）</text>
+    <text x="874" y="408" font-size="13.5" font-weight="600" fill="#0f172a">search_files</text>
+    <text x="874" y="425" font-size="10.5" fill="#64748b">按文件名搜索</text>
 
     <rect x="64" y="452" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
-    <text x="76" y="472" font-size="13.5" font-weight="600" fill="#0f172a">get_current_month</text>
-    <text x="76" y="489" font-size="10.5" fill="#64748b">当前月份（模拟）</text>
-    <rect x="330" y="452" width="290" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
-    <text x="342" y="472" font-size="13.5" font-weight="600" fill="#0f172a">fetch_external_data</text>
-    <text x="342" y="489" font-size="10.5" fill="#64748b">读取 CSV 使用记录</text>
-    <rect x="636" y="452" width="476" height="48" rx="9" fill="#ffffff" stroke="#f472b6" filter="url(#shadow)"/>
-    <text x="648" y="472" font-size="13.5" font-weight="600" fill="#0f172a">fill_context_for_report</text>
-    <text x="648" y="489" font-size="10.5" fill="#64748b">场景开关：触发报告提示词</text>
+    <text x="76" y="472" font-size="13.5" font-weight="600" fill="#0f172a">search_text</text>
+    <text x="76" y="489" font-size="10.5" fill="#64748b">按内容搜索</text>
+    <rect x="330" y="452" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
+    <text x="342" y="472" font-size="13.5" font-weight="600" fill="#0f172a">list_processes</text>
+    <text x="342" y="489" font-size="10.5" fill="#64748b">进程 / 内存占用</text>
+    <rect x="596" y="452" width="250" height="48" rx="9" fill="#ffffff" stroke="#f472b6" filter="url(#shadow)"/>
+    <text x="608" y="472" font-size="13.5" font-weight="600" fill="#0f172a">write_text_file</text>
+    <text x="608" y="489" font-size="10.5" fill="#64748b">写文件（需确认）</text>
+    <rect x="862" y="452" width="250" height="48" rx="9" fill="#ffffff" stroke="#f472b6" filter="url(#shadow)"/>
+    <text x="874" y="472" font-size="13.5" font-weight="600" fill="#0f172a">delete_path</text>
+    <text x="874" y="489" font-size="10.5" fill="#64748b">删除（需确认）</text>
 
     <path d="M229 316 V352" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
@@ -89,17 +92,17 @@
     <rect x="40" y="566" width="1120" height="132" rx="14" fill="#fff7ed" stroke="#fed7aa"/>
     <text x="56" y="588" font-size="12" font-weight="600" fill="#c2410c" letter-spacing="1.2">核心服务层 · SERVICES</text>
     <rect x="64" y="600" width="390" height="82" rx="9" fill="#ffffff" stroke="#fb923c" filter="url(#shadow)"/>
-    <text x="80" y="624" font-size="14" font-weight="700" fill="#0f172a">RagSummarizeService</text>
-    <text x="80" y="646" font-size="10.5" fill="#475569">retriever → PromptTemplate → ChatModel → StrOutputParser</text>
-    <text x="80" y="664" font-size="10.5" fill="#64748b">rag_summarize(query) 的完整链路</text>
+    <text x="80" y="624" font-size="14" font-weight="700" fill="#0f172a">HumanInTheLoopMiddleware</text>
+    <text x="80" y="646" font-size="10.5" fill="#475569">interrupt_on → interrupt() → Command(resume=...)</text>
+    <text x="80" y="664" font-size="10.5" fill="#64748b">高危工具挂起与恢复</text>
     <rect x="478" y="600" width="390" height="82" rx="9" fill="#ffffff" stroke="#fb923c" filter="url(#shadow)"/>
-    <text x="494" y="624" font-size="14" font-weight="700" fill="#0f172a">VectorStoreService</text>
-    <text x="494" y="646" font-size="10.5" fill="#475569">Chroma 持久化 · 文本切分 · MD5 去重</text>
-    <text x="494" y="664" font-size="10.5" fill="#64748b">load_document() / get_retriever()</text>
+    <text x="494" y="624" font-size="14" font-weight="700" fill="#0f172a">AgentEvent 事件流</text>
+    <text x="494" y="646" font-size="10.5" fill="#475569">text / interrupt 两类事件</text>
+    <text x="494" y="664" font-size="10.5" fill="#64748b">execute_stream / resume_stream</text>
     <rect x="892" y="600" width="224" height="82" rx="9" fill="#ffffff" stroke="#fb923c" filter="url(#shadow)"/>
     <text x="906" y="624" font-size="13.5" font-weight="700" fill="#0f172a">Prompt Loader</text>
     <text x="906" y="646" font-size="10.5" fill="#475569">utils/prompt_loader.py</text>
-    <text x="906" y="664" font-size="10.5" fill="#64748b">main / rag / report</text>
+    <text x="906" y="664" font-size="10.5" fill="#64748b">main / report</text>
 
     <path d="M64 412 H48 V620 H64" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M454 641 H478" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
@@ -112,23 +115,23 @@
     <text x="78" y="790" font-size="10.5" fill="#475569">qwen3.5-flash · init_chat_model</text>
     <text x="78" y="806" font-size="10.5" fill="#64748b">DashScope 兼容端点</text>
     <rect x="370" y="746" width="280" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
-    <text x="384" y="770" font-size="13.5" font-weight="700" fill="#0f172a">DashScopeEmbeddings</text>
-    <text x="384" y="790" font-size="10.5" fill="#475569">text-embedding-v4</text>
-    <text x="384" y="806" font-size="10.5" fill="#64748b">文档 / 查询向量化</text>
+    <text x="384" y="770" font-size="13.5" font-weight="700" fill="#0f172a">psutil</text>
+    <text x="384" y="790" font-size="10.5" fill="#475569">系统 / 磁盘 / 进程</text>
+    <text x="384" y="806" font-size="10.5" fill="#64748b">只读本机信息</text>
     <rect x="676" y="746" width="280" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
-    <text x="690" y="770" font-size="13.5" font-weight="700" fill="#0f172a">Chroma</text>
-    <text x="690" y="790" font-size="10.5" fill="#475569">collection = agent</text>
-    <text x="690" y="806" font-size="10.5" fill="#64748b">persist = chroma_db/</text>
+    <text x="690" y="770" font-size="13.5" font-weight="700" fill="#0f172a">本地文件系统</text>
+    <text x="690" y="790" font-size="10.5" fill="#475569">读写 / 搜索 / 命令</text>
+    <text x="690" y="806" font-size="10.5" fill="#64748b">系统目录受保护</text>
     <rect x="982" y="746" width="150" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
-    <text x="994" y="770" font-size="13.5" font-weight="700" fill="#0f172a">本地文件</text>
-    <text x="994" y="790" font-size="10.5" fill="#475569">data/ · md5.text</text>
-    <text x="994" y="806" font-size="10.5" fill="#64748b">原始资料 / 去重清单</text>
+    <text x="994" y="770" font-size="13.5" font-weight="700" fill="#0f172a">记忆后端</text>
+    <text x="994" y="790" font-size="10.5" fill="#475569">短期 / JSON</text>
+    <text x="994" y="806" font-size="10.5" fill="#64748b">/ PostgreSQL</text>
 
     <path d="M330 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M560 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M800 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
-    <text x="64" y="852" font-size="10.5" fill="#64748b">向量库示例数据：3 个 chunk；切分 chunk_size=200 / overlap=20；日志：logs/agent_YYYYMMDD.log（控制台 INFO / 文件 DEBUG）</text>
+    <text x="64" y="852" font-size="10.5" fill="#64748b">高危工具：write_text_file / create_directory / move_path / copy_path / delete_path / run_command / open_path；日志：logs/agent_YYYYMMDD.log</text>
     <text x="64" y="870" font-size="10.5" fill="#64748b">会话记忆在输入框左侧按钮切换：短期记忆（默认）/ 本地 JSON / PostgreSQL；侧边栏管理会话 ID。</text>
 
     <!-- Prompt switch (dashed) -->
@@ -140,11 +143,11 @@
 
     <rect x="1210" y="146" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="166" font-size="13" font-weight="700" fill="#0f172a">config/*.yml</text>
-    <text x="1224" y="184" font-size="10.5" fill="#64748b">rag / chroma / agent / prompts</text>
+    <text x="1224" y="184" font-size="10.5" fill="#64748b">model / agent / prompts</text>
 
     <rect x="1210" y="218" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="238" font-size="13" font-weight="700" fill="#0f172a">prompts/*.txt</text>
-    <text x="1224" y="256" font-size="10.5" fill="#64748b">main / rag / report 三套提示词</text>
+    <text x="1224" y="256" font-size="10.5" fill="#64748b">main / report 两套提示词</text>
 
     <rect x="1210" y="290" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="310" font-size="13" font-weight="700" fill="#0f172a">.env</text>
@@ -152,7 +155,7 @@
 
     <rect x="1210" y="362" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="382" font-size="13" font-weight="700" fill="#0f172a">utils/*.py</text>
-    <text x="1224" y="400" font-size="10.5" fill="#64748b">config / path / file / logger / prompt</text>
+    <text x="1224" y="400" font-size="10.5" fill="#64748b">config / path / logger / prompt</text>
 
     <rect x="1210" y="434" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="454" font-size="13" font-weight="700" fill="#0f172a">logs/</text>
@@ -170,7 +173,7 @@
     <text x="1224" y="670" font-size="13" font-weight="700" fill="#0f172a">memorys/chat_history/</text>
     <text x="1224" y="688" font-size="10.5" fill="#64748b">本地 JSON / 文件型会话历史（已接入）</text>
 
-    <text x="1206" y="758" font-size="10.5" fill="#64748b">启动时读取配置；运行时写入日志、向量库与记忆文件。</text>
+    <text x="1206" y="758" font-size="10.5" fill="#64748b">启动时读取配置；运行时写入日志与记忆文件。</text>
     <text x="1206" y="778" font-size="10.5" fill="#64748b">重建 .venv 后需重新复制 env_patch 到 site-packages。</text>
     <text x="1206" y="798" font-size="10.5" fill="#64748b">Agent 系统/报告提示词在每次模型调用前重读。</text>
 
@@ -180,7 +183,7 @@
     <line x1="220" y1="930" x2="268" y2="930" stroke="#db2777" stroke-width="1.6" stroke-dasharray="6 5"/>
     <text x="278" y="935" font-size="12" fill="#475569">配置 / 提示词 / 数据依赖</text>
 
-    <text x="48" y="992" font-size="11" fill="#94a3b8">版本快照：Python 3.14 · langchain 1.4.0 · langgraph 1.2.11 · langchain-chroma 1.1.0 · chromadb 1.5.9 · streamlit 1.64.0</text>
-    <text x="1552" y="992" font-size="11" fill="#94a3b8" text-anchor="end">架构图 · 代码基线 05308a7 · 2026-10-22</text>
+    <text x="48" y="992" font-size="11" fill="#94a3b8">版本快照：Python 3.14 · langchain 1.4.0 · langgraph 1.2.11 · psutil 7.2.2 · streamlit 1.64.0</text>
+    <text x="1552" y="992" font-size="11" fill="#94a3b8" text-anchor="end">架构图 · 代码基线 2026-10-25</text>
   </g>
 </svg>

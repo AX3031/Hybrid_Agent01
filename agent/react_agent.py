@@ -1,14 +1,60 @@
 import os
+from dataclasses import dataclass, field
+from typing import Any
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.types import Command
+
 from model.factory import chat_model
 from utils.prompt_loader import load_system_prompts
 from memorys.memory_factory import DEFAULT_MEMORY_MODE, create_checkpointer
-from agent.tools.agent_tools import (rag_summarize, get_weather, get_user_location, get_user_id, get_current_month,
-                                     fetch_external_data, fill_context_for_report, web_search_baidu)
-from agent.tools.middleware import (monitor_tool, log_before_model, report_prompt_switch,
-                                    pii_middleware_email, pii_middleware_phone, model_fallback_middleware)
+from agent.tools.agent_tools import (
+    get_weather, get_user_location, get_user_id, get_current_month,
+    fetch_external_data, fill_context_for_report, web_search_baidu,
+)
+from agent.tools.os_tools import (
+    get_system_info, list_directory, read_text_file, search_files, search_text, list_processes,
+    write_text_file, create_directory, move_path, copy_path, delete_path, run_command, open_path,
+)
+from agent.tools.middleware import (
+    monitor_tool, log_before_model, report_prompt_switch,
+    pii_middleware_email, pii_middleware_phone, model_fallback_middleware,
+)
+
+# 会修改电脑状态的工具，调用前必须由用户确认
+CONFIRM_TOOLS = {
+    "write_text_file": "写入文件",
+    "create_directory": "创建目录",
+    "move_path": "移动或重命名",
+    "copy_path": "复制文件",
+    "delete_path": "删除文件或目录",
+    "run_command": "执行系统命令",
+    "open_path": "打开文件或网址",
+}
+
+# 人工确认中间件：命中 CONFIRM_TOOLS 的工具调用会挂起，等待 UI 提交 approve/reject
+hitl_middleware = HumanInTheLoopMiddleware(
+    interrupt_on={
+        name: {"allowed_decisions": ["approve", "reject"]}
+        for name in CONFIRM_TOOLS
+    },
+    description_prefix="该操作会修改电脑状态，请确认参数后再决定是否执行",
+)
+
+
+@dataclass
+class AgentEvent:
+    """Agent 流式事件。
+
+    - type="text"：模型输出的一段文本，content 为内容
+    - type="interrupt"：有危险操作等待确认，action_requests 为待确认的工具调用
+    """
+
+    type: str
+    content: str = ""
+    action_requests: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _default_memory_mode() -> str:
@@ -26,30 +72,77 @@ class ReactAgent:
         self.agent = create_agent(
             model=chat_model,
             system_prompt=load_system_prompts(),
-            tools=[rag_summarize, get_weather, get_user_location, get_user_id, get_current_month,
-                   fetch_external_data, fill_context_for_report, web_search_baidu],
-            middleware=[model_fallback_middleware, pii_middleware_email, pii_middleware_phone,
-                        monitor_tool, log_before_model, report_prompt_switch],
+            tools=[
+                # 电脑信息（只读）
+                get_system_info, list_directory, read_text_file,
+                search_files, search_text, list_processes,
+                # 电脑操作（需用户确认）
+                write_text_file, create_directory, move_path, copy_path,
+                delete_path, run_command, open_path,
+                # 原有业务工具
+                get_weather, get_user_location, get_user_id, get_current_month,
+                fetch_external_data, fill_context_for_report, web_search_baidu,
+            ],
+            middleware=[
+                model_fallback_middleware,
+                pii_middleware_email,
+                pii_middleware_phone,
+                monitor_tool,
+                log_before_model,
+                report_prompt_switch,
+                hitl_middleware,
+            ],
             checkpointer=self.checkpointer,
         )
 
     def execute_stream(self, query: str, thread_id: str | None = None):
+        """提交一条用户消息，流式返回文本与待确认事件。"""
         input_dict = {
             "messages": [
                 {"role": "user", "content": query}
             ]
         }
+        yield from self._stream(input_dict, self._build_config(thread_id))
 
+    def resume_stream(self, decisions: list[dict], thread_id: str | None = None):
+        """用户确认后继续执行被挂起的工具调用。
+
+        decisions 需与待确认操作一一对应，例如：
+        [{"type": "approve"}] 或 [{"type": "reject", "message": "用户拒绝执行"}]
+        """
+        yield from self._stream(Command(resume={"decisions": decisions}), self._build_config(thread_id))
+
+    @staticmethod
+    def _build_config(thread_id: str | None) -> dict:
         # checkpointer 始终存在，thread_id 用于区分会话（相同 ID 恢复历史）
-        config = {"configurable": {"thread_id": thread_id or "default"}}
+        return {"configurable": {"thread_id": thread_id or "default"}}
 
-        # 第三个参数context就是上下文runtime中的信息，就是我们提示词切换的标记
-        for chunk in self.agent.stream(input_dict, stream_mode="values", context={"report": False}, config=config):
-            lastest_message = chunk["messages"][-1]
+    def _stream(self, payload: Any, config: dict):
+        # 同时订阅 values（完整状态，用于取模型回答）和 updates（用于捕获 interrupt）
+        for mode, chunk in self.agent.stream(
+            payload,
+            stream_mode=["values", "updates"],
+            context={"report": False},
+            config=config,
+        ):
+            if mode == "updates":
+                if "__interrupt__" in chunk:
+                    action_requests = []
+                    for interrupt_obj in chunk["__interrupt__"]:
+                        value = getattr(interrupt_obj, "value", {}) or {}
+                        action_requests.extend(value.get("action_requests", []))
+                    if action_requests:
+                        yield AgentEvent(type="interrupt", action_requests=action_requests)
+                continue
+
+            messages = chunk.get("messages") or []
+            if not messages:
+                continue
+            lastest_message = messages[-1]
             # 只输出模型回答，避免把用户问题、工具结果回显到页面
             if isinstance(lastest_message, AIMessage) and not lastest_message.tool_calls:
                 if isinstance(lastest_message.content, str) and lastest_message.content.strip():
-                    yield lastest_message.content.strip() + "\n"
+                    yield AgentEvent(type="text", content=lastest_message.content.strip() + "\n")
 
     def clear_memory(self, thread_id: str) -> None:
         """删除指定会话在后端 checkpointer 中的全部状态。"""
@@ -82,5 +175,8 @@ class ReactAgent:
 if __name__ == '__main__':
     agent = ReactAgent()
 
-    for chunk in agent.execute_stream("我这里天气怎么样", thread_id="local_test"):
-        print(chunk, end="", flush=True)
+    for event in agent.execute_stream("看一下这台电脑的系统信息", thread_id="local_test"):
+        if event.type == "text":
+            print(event.content, end="", flush=True)
+        else:
+            print(f"\n[待确认操作] {event.action_requests}")

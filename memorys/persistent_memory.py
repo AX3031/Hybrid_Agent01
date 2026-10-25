@@ -66,7 +66,6 @@ class FileChatMessageHistory(BaseChatMessageHistory):
 
 
 model = chat_model
-# prompt_template = PromptTemplate.from_template(load_rag_prompts())
 
 # prompt_template = PromptTemplate.from_template(
 #     "你需要根据会话历史回应用户问题，对话历史：{chat_history}，用户提问：{input}，请回答"
