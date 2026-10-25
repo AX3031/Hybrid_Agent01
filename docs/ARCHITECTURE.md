@@ -2,7 +2,7 @@
 
 > 面向对象：需要接手、扩展或排查该项目的开发/运维人员。
 >
-> 代码基线：`05308a7`（2026-10-22 工作区快照）。
+> 代码基线：`2026-10-25` 工作区快照。
 >
 > 配套图：[architecture.svg](architecture.svg)（分层架构）。
 >
@@ -107,6 +107,7 @@
 | 高可用/水平扩展 | 单进程，不支持多 worker 共享状态 |
 | 真实天气/定位/用户系统 | 工具返回模拟数据 |
 | GUI 级操作（键鼠/窗口/截图） | 未实现，当前只有文件系统与命令行能力 |
+| 文件上传 UI | `app_file_uploader.py` 为空壳 |
 | 自动化测试/CI | 无 |
 
 > 结论：当前适合做原型验证和 LangChain Agent 二次开发脚手架，不应直接按生产系统对外承诺 SLA。
@@ -563,6 +564,7 @@ sequenceDiagram
 
 - `prompts/report_prompt.txt` 与 `prompts/main_prompt.txt` 已补全角色、工具规则、输出结构与边界，但仍是通用模板，需按业务持续迭代。
 - 主提示词已明确要求报告场景先调用 `fill_context_for_report`；若后续修改提示词，必须保留该约束，否则场景切换不会触发。
+- 报告场景与人工确认相互独立：报告类工具本身无副作用，不会触发确认；但若报告流程中调用了写文件、执行命令等工具，仍会挂起等待确认。
 - 报告效果仍受外部 CSV 数据质量限制。
 
 ### 8.4 新增一个场景
@@ -868,7 +870,7 @@ uv run -m agent.react_agent
 - 工具描述是模型选择工具的主要依据，写清“能力 + 入参 + 返回”。
 - 返回值尽量用 `str` 或可 JSON 序列化的结构；不要返回不可序列化对象。
 - 工具内部不要吞掉所有异常后返回空字符串而不记录日志；至少记录 warning/error。
-- 有副作用的工具（下单、删除、发送消息）需要额外的确认/权限控制。
+- 有副作用的工具必须加入 `agent/react_agent.py` 的 `CONFIRM_TOOLS`，由 `HumanInTheLoopMiddleware` 在调用前挂起确认。
 - 长耗时工具考虑异步 `async def`，并设置超时。
 - 新增/删除工具后，同步更新 README 能力表、本文 5.2、PROJECT_OVERVIEW 第 3 节与 `architecture.svg` 工具层，并更新主提示词中的工具说明。
 
@@ -910,7 +912,7 @@ with st.bottom:
     with composer:
         with st.popover("短期记忆", icon=":material/psychology:"):
             st.radio("会话记忆方式", options=list(MEMORY_MODE_LABELS.keys()), key="memory_mode_selector")
-        prompt = st.chat_input("请输入你的问题", width="stretch")
+        prompt = st.chat_input("告诉我你想在这台电脑上做什么", width="stretch")
 
 # agent/react_agent.py
 self.checkpointer = create_checkpointer(self.memory_mode)

@@ -64,7 +64,7 @@ config/       model / agent / prompts
 prompts/      main / report
 data/         external/records.csv
 memorys/      记忆方式工厂 + 短期/JSON/PostgreSQL checkpointer
-docs/         架构文档与 SVG
+docs/         架构文档、电脑操作功能说明与 SVG
 env_patch/    .pth + sitecustomize.py
 ```
 
@@ -85,6 +85,7 @@ env_patch/    .pth + sitecustomize.py
 | 整体分几层、用了什么？ | [ARCHITECTURE 第 4 节](ARCHITECTURE.md#4-总体架构) + [architecture.svg](architecture.svg) |
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
+| 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
 | 报告场景怎么切换？ | [ARCHITECTURE 第 8 节](ARCHITECTURE.md#8-报告场景与动态提示词) |
 | 配置在哪改？ | [ARCHITECTURE 第 9 节](ARCHITECTURE.md#9-配置体系) + [README 配置速查](../README.md#7-配置入口速查) |
 | 想加工具/上传/记忆？ | [ARCHITECTURE 第 13 节](ARCHITECTURE.md#13-扩展指南) |

@@ -25,6 +25,7 @@
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | 1 页速览，人和 AI 的快速入口 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前状态的深度参考：模块、流程、配置、扩展、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构图（人看） |
+| [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能说明（普通人向 + 开发者参数） |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更日志（Keep a Changelog 格式，未发布改动在 `[Unreleased]`） |
 
@@ -199,7 +200,7 @@ project2/
 ├── data/                       # external/ 下为业务 CSV
 ├── logs/                       # 按日日志
 ├── env_patch/                  # ⚙️ 虚拟环境补丁（.pth + sitecustomize.py）
-└── docs/                       # 速览、架构文档与 SVG 图
+└── docs/                       # 速览、架构文档、功能说明与 SVG 图
 ```
 
 图例：✅ 主链路 / 🧪 示例或预留 / ⚙️ 基础设施。
@@ -262,6 +263,7 @@ project2/
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | 1 页速览：定位、分层、主流程、关键约束、问题索引 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构、模块职责、调用时序、配置、扩展指南、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构总览图 |
+| [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能说明：使用场景、确认卡片、安全边界、参数表 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更：加了什么 / 改了什么 / 修了什么 |
 

@@ -6,9 +6,10 @@
 
 1. `docs/PROJECT_OVERVIEW.md`：先建立全局（定位、分层、主流程、关键约束）。
 2. `README.md` 的「快速开始」「配置入口速查」：只在需要命令/环境变量时读。
-3. `docs/ARCHITECTURE.md` 的对应章节：按 `PROJECT_OVERVIEW.md` 第 8 节索引按需读，不要默认整份加载。
-4. 源码：需要精确行为时再读；代码是最终事实源。
-5. `CHANGELOG.md`：只在需要知道“最近改了什么 / 为什么改”时读；它是 Keep a Changelog 格式的人工摘要，不是 git log。
+3. 需要电脑操作的功能清单、参数与安全边界时，读 `docs/OS_TOOLS.md`。
+4. `docs/ARCHITECTURE.md` 的对应章节：按 `PROJECT_OVERVIEW.md` 第 8 节索引按需读，不要默认整份加载。
+5. 源码：需要精确行为时再读；代码是最终事实源。
+6. `CHANGELOG.md`：只在需要知道“最近改了什么 / 为什么改”时读；它是 Keep a Changelog 格式的人工摘要，不是 git log。
 
 ## 不要做的事
 
@@ -20,8 +21,9 @@
 
 按 `docs/ARCHITECTURE.md` 第 16.3 节同步：
 
-- 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`architecture.svg` 工具层。
+- 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`docs/OS_TOOLS.md`、`architecture.svg` 工具层。
 - 新增/删除中间件 → `ARCHITECTURE.md` 5.2/8/11、`architecture.svg` 编排层。
+- 新增/删除文档 → `README.md` 导读/文档地图、`PROJECT_OVERVIEW.md` 第 8 节、本文件阅读顺序。
 - 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`README.md` 能力表、`architecture.svg` 工具层。
 - 改配置 → `ARCHITECTURE.md` 9、`README.md` 配置速查。
 - 改模型/依赖/目录 → 对应技术栈、拓扑与目录树章节；**图也要同步**：`architecture.svg` 的模型/存储层节点与副标题。
