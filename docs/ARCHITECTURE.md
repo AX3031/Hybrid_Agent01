@@ -214,6 +214,7 @@ project2/
 │   ├── react_agent.py           # ✅ Agent 组装 + 流式/确认事件
 │   └── tools/
 │       ├── os_tools.py          # ✅ 13 个电脑信息与文件操作工具
+│       ├── safety.py            # ✅ 工作区域 / 命令拦截 / 备份 / 回收区 / 人话解释
 │       ├── agent_tools.py       # ✅ 7 个业务工具 + 外部数据加载
 │       └── middleware.py        # ✅ 6 个中间件（HITL 在 react_agent 单独注册）
 ├── model/
@@ -228,7 +229,8 @@ project2/
 │   ├── config_handler.py        # ⚙️ YAML 加载
 │   ├── prompt_loader.py         # ⚙️ 提示词加载
 │   ├── path_tool.py             # ⚙️ 项目根/绝对路径
-│   └── logger_handler.py        # ⚙️ 日志
+│   ├── logger_handler.py        # ⚙️ 日志
+│   └── audit_logger.py          # ⚙️ 工具调用审计日志
 ├── config/                      # ⚙️ model/prompts/agent
 ├── prompts/                     # ⚙️ main/report 两套提示词
 ├── data/                        # external/records.csv
@@ -265,14 +267,18 @@ project2/
 ```mermaid
 flowchart TB
     APP[app.py] --> RA[agent/react_agent.py]
+    APP --> SF[agent/tools/safety.py]
     RA --> MF[model/factory.py]
     RA --> PL[utils/prompt_loader.py]
+    RA --> SF
     RA --> OT[agent/tools/os_tools.py]
     RA --> AT[agent/tools/agent_tools.py]
     RA --> MW[agent/tools/middleware.py]
     RA --> HITL[HumanInTheLoopMiddleware]
+    OT --> SF
     MW --> MF
     MW --> CH[utils/config_handler.py]
+    MW --> AL[utils/audit_logger.py]
     RA --> MEM[memorys/memory_factory.py]
     MEM --> IM[(短期 InMemorySaver)]
     MEM --> FJ[(本地 JSON 文件)]
@@ -284,6 +290,7 @@ flowchart TB
     MF --> CH
     PL --> CH
     PL --> PT
+    AL --> PT
     CH --> PT
 ```
 
@@ -492,8 +499,9 @@ AIMessage("已清理 3 个临时文件...")
 
 | 层级 | 工具 | 执行方式 |
 | --- | --- | --- |
-| 只读 | `get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes` | 模型调用后立即执行，但仍受工作区限制 |
-| 有副作用 | `write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path` | 命中 `HumanInTheLoopMiddleware`，挂起等待确认 |
+| 只读（直接执行） | `list_directory`、`read_text_file`、`search_files`、`search_text` | 模型调用后立即执行，但仍受工作区限制 |
+| 敏感读取（需确认） | `get_system_info`、`list_processes` | 命中 `HumanInTheLoopMiddleware`，确认后执行 |
+| 有副作用（需确认） | `write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path` | 命中 `HumanInTheLoopMiddleware`，挂起等待确认 |
 
 ### 7.2 工作区域
 
@@ -509,7 +517,10 @@ AIMessage("已清理 3 个临时文件...")
 | `is_sensitive()` | 拒绝 `.ssh`、`.gnupg`、`.aws`、`.azure`、`.kube` |
 
 所有接路径的工具（包括读取和搜索）都先调用 `guard_path()`，越界直接返回错误字符串。
-`run_command` 额外检查 `cwd` 和命令字符串中的绝对路径。
+相对路径统一基于项目根解析，避免从不同目录启动时指向不同位置。
+`run_command` 额外检查 `cwd` 和命令字符串中的绝对路径（支持 `\` 与 `/`）。
+
+界面修改：`save_workspace_roots()` 先校验（绝对路径、非盘符根、非系统目录），再原子写回 `config/agent.yml`，最后调用 `reload_workspace_roots()` 立即生效，无需重启。
 
 ### 7.3 人工确认链路
 
@@ -526,11 +537,12 @@ AIMessage("已清理 3 个临时文件...")
 
 | 保险 | 实现 | 位置 |
 | --- | --- | --- |
-| 删除回收区 | 默认 `shutil.move` 到工作区根的 `.agent_trash`，`permanent=True` 才真删 | `safety.move_to_trash` |
+| 删除回收区 | 默认 `shutil.move` 到工作区根的 `.agent_trash`，`permanent=True` 才真删；工作区根目录禁止删除/移动/复制 | `safety.move_to_trash` |
 | 覆盖前备份 | `copy2` 到 `.agent_backup`，超过 10 MB 跳过并说明 | `safety.backup_before_overwrite` |
 | 可执行文件拦截 | 拒绝 `.exe/.dll/.bat/.cmd/.ps1/.vbs/.js/.msi` 等后缀 | `safety.check_write_suffix` |
-| 危险命令拦截 | 13 条正则黑名单（format、diskpart、reg delete、shutdown、递归删除等） | `safety.check_command` |
-| 越界路径检查 | 提取命令中的盘符路径，逐个子校验工作区 | `safety.check_command` |
+| 危险命令拦截 | 28 条正则黑名单（format、diskpart、del/erase、Remove-Item、rm、环境变量、编码命令、cd ..、copy con、下载/执行工具等） | `safety.check_command` |
+| 越界路径检查 | 提取命令中的盘符路径（支持 `\` 和 `/`），逐个子校验工作区 | `safety.check_command` |
+| 命令默认工作目录 | 未指定 `cwd` 时使用第一个工作区根，不继承应用启动目录 | `os_tools.run_command` |
 | 单轮次数上限 | `ToolCallLimitMiddleware(run_limit=20, exit_behavior="continue")` | `react_agent.py` |
 
 ### 7.5 操作留痕
@@ -646,7 +658,7 @@ import agent.tools.middleware
 | 键 | 当前值 | 作用 |
 | --- | --- | --- |
 | `external_data_path` | `data/external/records.csv` | 外部使用记录 CSV 路径 |
-| `workspace_roots` | `["~", "."]` | 允许操作的目录；`~` 为用户目录，`.` 为项目根 |
+| `workspace_roots` | `["~", "."]` | 允许操作的目录；`~` 为用户目录，`.` 为项目根；可在界面修改并立即生效 |
 | `sensitive_dirs` | `[".ssh", ".gnupg", ".aws", ".azure", ".kube"]` | 工作区内仍拒绝访问的目录 |
 
 ### 9.4 `config/prompts.yml`
@@ -1186,7 +1198,7 @@ uv run streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 | UI 入口 | `app.py` |
 | Agent 组装 | `agent/react_agent.py` |
 | 工具实现 | `agent/tools/os_tools.py`（电脑操作）、`agent/tools/agent_tools.py`（业务） |
-| 安全策略 | `agent/tools/safety.py`（工作区 / 敏感目录 / 命令拦截 / 备份 / 回收区 / 人话解释） |
+| 安全策略 | `agent/tools/safety.py`（工作区 / 敏感目录 / 命令拦截 / 备份 / 回收区 / 人话解释 / 工作区域保存与重载） |
 | 审计日志 | `utils/audit_logger.py` |
 | 人工确认 | `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware` |
 | 中间件 | `agent/tools/middleware.py` |

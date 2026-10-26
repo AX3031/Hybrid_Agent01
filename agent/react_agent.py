@@ -23,8 +23,10 @@ from agent.tools.middleware import (
     pii_middleware_email, pii_middleware_phone, model_fallback_middleware,
 )
 
-# 会修改电脑状态的工具，调用前必须由用户确认
+# 会读取敏感信息或修改电脑状态的工具，调用前必须由用户确认
 CONFIRM_TOOLS = {
+    "get_system_info": "查看系统信息",
+    "list_processes": "查看进程列表",
     "write_text_file": "写入文件",
     "create_directory": "创建目录",
     "move_path": "移动或重命名",
@@ -168,11 +170,16 @@ class ReactAgent:
                             elif isinstance(message, ToolMessage):
                                 tool_call = pending_calls.pop(message.tool_call_id, None)
                                 if tool_call is None and self._resume_pending_actions:
-                                    action = self._resume_pending_actions.pop(0)
-                                    tool_call = {
-                                        "name": action.get("name", ""),
-                                        "args": action.get("args", {}),
-                                    }
+                                    # 恢复执行时可能还有只读工具先返回，按工具名匹配，避免错配
+                                    message_name = getattr(message, "name", "") or ""
+                                    for index, action in enumerate(self._resume_pending_actions):
+                                        if action.get("name") == message_name:
+                                            action = self._resume_pending_actions.pop(index)
+                                            tool_call = {
+                                                "name": action.get("name", ""),
+                                                "args": action.get("args", {}),
+                                            }
+                                            break
                                 if tool_call:
                                     content = message.content
                                     if not isinstance(content, str):
@@ -183,7 +190,7 @@ class ReactAgent:
                                             "name": tool_call.get("name", ""),
                                             "args": tool_call.get("args", {}),
                                             "result": content,
-                                            "status": getattr(message, "status", "success"),
+                                            "status": getattr(message, "status", None) or "success",
                                         },
                                     )
                     continue

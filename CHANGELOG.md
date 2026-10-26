@@ -25,6 +25,9 @@
 - 删除回收区：`delete_path` 默认移到 `.agent_trash`，`permanent=True` 才永久删除。
 - 覆盖前自动备份到 `.agent_backup`（10MB 上限）。
 - `ToolCallLimitMiddleware`：单轮最多 20 次工具调用。
+- `app.py`：输入框左侧新增「工作区域」弹层，可查看当前范围、每行输入一个绝对路径、保存后立即生效并写回 `config/agent.yml`。
+- `agent/tools/safety.py`：新增 `validate_workspace_inputs` / `save_workspace_roots` / `reload_workspace_roots`；输入校验覆盖绝对路径、盘符根、系统保护目录。
+- `get_system_info`、`list_processes` 加入确认清单，并补充“会读取设备标识/正在使用的软件”的风险说明。
 
 ### Changed
 
@@ -45,6 +48,9 @@
 - `agent/tools/middleware.py`：`monitor_tool` 修正日志时序，并接入审计日志。
 - `prompts/main_prompt.txt`：补充工作区域、回收区、备份、可执行后缀、命令拦截、20 次上限、操作留痕等安全规则。
 - 文档同步：`docs/OS_TOOLS.md` 重写为「功能与安全说明」；`README.md` 能力表/配置速查/限制；`ARCHITECTURE.md` 7/9.3/10.4/11.5/12/16.1；`PROJECT_OVERVIEW.md` 5/6/7；`architecture.svg` 安全节点；`AGENTS.md` 安全策略同步规则。
+- `CONFIRM_TOOLS` 从 7 个增加到 9 个；`get_system_info`、`list_processes` 从“直接执行”改为“确认后执行”。
+- `docs/OS_TOOLS.md` 第 2 节扩充为 2.1–2.8：为什么需要工作区域、默认范围、查看方式、两种修改方式、允许/拒绝例子、填写规则、常见错误、敏感目录。
+- 文档与图同步：README/ARCHITECTURE 目录树补充 `safety.py`、`audit_logger.py`；ARCHITECTURE 5.3 依赖图加入 `safety.py`、`audit_logger.py`；`architecture.svg` 表现层标注工作区域设置、编排层补充 ToolCallLimit、底部黑名单数字更新。
 
 ### Removed
 
@@ -59,3 +65,11 @@
 - 聊天界面不再回显用户问题与工具中间结果，只输出不带 `tool_calls` 的最终 `AIMessage` 文本（技术债 TD-03）。
 - 修复回答为空时 `response_messages[-1]` 抛出的 `IndexError`（技术债 TD-04）。
 - `monitor_tool` 不再在工具执行前打印“调用成功”，改为“开始执行”与“调用成功”两条日志（技术债 TD-12）。
+- 命令越界检查同时支持反斜杠和正斜杠路径，修复 `C:/Windows/...` 可绕过的问题。
+- `run_command` 未指定 `cwd` 时默认在第一个工作区根目录执行，不再继承应用启动目录。
+- 恢复执行时按工具名匹配待确认操作，避免只读工具先返回时错配操作记录。
+- `expand_path` 将相对路径统一基于项目根解析，避免启动目录不同导致路径漂移。
+- 最新一轮的操作记录默认展开，历史记录折叠；`status` 为空时按成功处理。
+- 危险命令黑名单从 15 条增加到 28 条，补齐环境变量（`%SystemRoot%`）、PowerShell 编码命令（`-EncodedCommand`）、`cd ..`、`copy con`、重定向到可执行后缀、`Set-Content`/`Out-File`、下载/执行工具（`certutil`/`mshta`/`rundll32` 等）、cmd 转义符 `^`、`attrib`/`icacls`/`wmic`/`Start-Process` 等绕过路径。
+- 禁止删除、移动、复制工作区域根目录本身，避免误操作整个工作区。
+- 工作区域不允许设置为敏感目录（`.ssh`、`.aws` 等）。

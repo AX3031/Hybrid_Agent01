@@ -64,7 +64,7 @@
 | 能力 | 状态 | 实现位置 |
 | --- | --- | --- |
 | 多轮工具调用（ReAct 循环） | ✅ 已接入 | `agent/react_agent.py` → `create_agent` |
-| 系统信息 / 磁盘 / 进程查看 | ✅ 已接入 | `agent/tools/os_tools.py` → `get_system_info`、`list_processes` |
+| 系统信息 / 磁盘 / 进程查看 | ✅ 已接入（需确认） | `agent/tools/os_tools.py` → `get_system_info`、`list_processes` |
 | 目录浏览 / 文本读取 / 文件搜索 | ✅ 已接入 | `list_directory`、`read_text_file`、`search_files`、`search_text` |
 | 文件写入 / 移动 / 复制 / 删除 | ✅ 已接入（需确认） | `write_text_file`、`move_path`、`copy_path`、`delete_path` |
 | 系统命令执行 | ✅ 已接入（需确认） | `run_command` |
@@ -150,7 +150,12 @@ uv sync
 uv run streamlit run app.py
 ```
 
-浏览器打开 Streamlit 输出的地址即可对话。**对话输入框左侧**有一个记忆按钮（显示当前方式），点击后弹出列表可切换：
+浏览器打开 Streamlit 输出的地址即可对话。**对话输入框左侧**有两个按钮：
+
+- **记忆按钮**：切换会话记忆方式（下方详述）。
+- **工作区域按钮**：查看和修改允许操作的目录，每行一个绝对路径，点「保存并应用」后立即生效，并写回 `config/agent.yml`。
+
+记忆方式的说明：
 
 - **短期记忆（默认，不存档记忆）**：仅在当前进程内按会话 ID 保留上下文，刷新页面或重启即丢失。
 - **本地记忆（以JSON格式本地存档）**：写入 `memorys/chat_history/agent_checkpoints.json`，重启后可恢复。
@@ -187,6 +192,7 @@ project2/
 │   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流
 │   └── tools/
 │       ├── os_tools.py         # ✅ 13 个电脑信息与文件操作工具
+│       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
 │       ├── agent_tools.py      # ✅ 7 个业务工具
 │       └── middleware.py       # ✅ 6 个中间件
 ├── model/
@@ -201,7 +207,8 @@ project2/
 │   ├── config_handler.py       # ⚙️ YAML 配置加载
 │   ├── prompt_loader.py        # ⚙️ 提示词加载
 │   ├── path_tool.py            # ⚙️ 项目根目录/绝对路径
-│   └── logger_handler.py       # ⚙️ 控制台 + 按日文件日志
+│   ├── logger_handler.py       # ⚙️ 控制台 + 按日文件日志
+│   └── audit_logger.py         # ⚙️ 工具调用审计日志
 ├── config/                     # ⚙️ model / prompts / agent 配置
 ├── prompts/                    # ⚙️ 系统提示词、报告提示词
 ├── data/                       # external/ 下为业务 CSV
@@ -220,12 +227,13 @@ project2/
 
 1. `app.py`：看 UI 如何创建 Agent、如何接收流式输出。
 2. `agent/react_agent.py`：看 `create_agent` 的模型、工具、中间件三要素。
-3. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
-4. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
-5. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏与模型降级。
-6. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
-7. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
-8. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
+3. `agent/tools/safety.py`：看工作区域、命令拦截、备份、回收区和小白解释。
+4. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
+5. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
+6. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏与模型降级。
+7. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
+8. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
+9. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
 
 更完整的调用时序、配置表、扩展步骤和已知问题见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -236,7 +244,7 @@ project2/
 | 想改什么 | 改哪里 |
 | --- | --- |
 | 换对话模型 | `config/model.yml` + `model/factory.py` |
-| 设置工作区域 | `config/agent.yml` 的 `workspace_roots`（改完重启） |
+| 设置工作区域 | 输入框左侧「工作区域」按钮（立即生效），或 `config/agent.yml` 的 `workspace_roots`（重启生效） |
 | 设置敏感目录 | `config/agent.yml` 的 `sensitive_dirs` |
 | 调整备份/回收区/命令黑名单 | `agent/tools/safety.py` |
 | 设置备用对话模型 | `config/model.yml` 的 `backup_chat_model_name` |
@@ -262,6 +270,7 @@ project2/
 4. **外部数据示例为空**：`data/external/records.csv` 为空，`fetch_external_data` 会查不到记录；CSV 解析也未处理带逗号的引号字段。
 5. **命令检查不是沙箱**：`run_command` 使用黑名单和工作区路径检查，精心构造的命令仍可能绕过；确认卡片是最后一道防线。
 6. **工作区限制基于路径比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
+7. **界面保存会重写配置文件**：通过「工作区域」按钮保存时使用 `yaml.safe_dump`，`config/agent.yml` 中的注释会丢失。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 

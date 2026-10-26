@@ -19,8 +19,12 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from utils.config_handler import agent_conf
-from utils.path_tool import get_project_root
+from utils.path_tool import get_abs_path, get_project_root
+
+_CONFIG_PATH = Path(get_abs_path("config/agent.yml"))
 
 # ---------------------------------------------------------------------------
 # 路径展开与工作区域
@@ -28,10 +32,20 @@ from utils.path_tool import get_project_root
 
 
 def expand_path(raw: str) -> Path:
-    """展开 ~、环境变量和包裹引号，返回绝对路径。"""
+    """展开 ~、环境变量和包裹引号，返回绝对路径。
+
+    相对路径统一基于项目根解析，避免运行目录不同导致指向不同位置。
+    """
     text = str(raw).strip().strip('"').strip("'")
+    if not text:
+        text = "."
+    if text == "~":
+        return Path.home().resolve()
     text = os.path.expandvars(os.path.expanduser(text))
-    return Path(text or ".").resolve()
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        candidate = Path(get_project_root()) / candidate
+    return candidate.resolve()
 
 
 def _norm(path: Path) -> str:
@@ -44,9 +58,18 @@ def _is_under(path: Path, root: Path) -> bool:
     return child == parent or child.startswith(parent + os.sep)
 
 
+def _read_config() -> dict:
+    """直接读取 agent.yml，保证界面保存后能立即拿到最新值。"""
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as stream:
+            return yaml.safe_load(stream) or {}
+    except OSError:
+        return {}
+
+
 def _load_workspace_roots() -> list[Path]:
     """读取工作区域配置；为空时默认「用户目录 + 项目根目录」。"""
-    configured = agent_conf.get("workspace_roots") or ["~", "."]
+    configured = _read_config().get("workspace_roots") or ["~", "."]
     roots: list[Path] = []
     for item in configured:
         text = str(item).strip()
@@ -101,6 +124,79 @@ def workspace_roots() -> list[Path]:
     return list(WORKSPACE_ROOTS)
 
 
+def reload_workspace_roots() -> list[Path]:
+    """重新读取 agent.yml 并更新全局工作区域，使其立即生效。"""
+    global WORKSPACE_ROOTS
+    WORKSPACE_ROOTS = _load_workspace_roots()
+    return list(WORKSPACE_ROOTS)
+
+
+def validate_workspace_inputs(lines: list[str]) -> tuple[list[str], list[str]]:
+    """校验用户输入的工作区域路径，返回（合法路径, 错误说明）。"""
+    valid: list[str] = []
+    errors: list[str] = []
+
+    for raw in lines:
+        text = str(raw).strip().strip('"').strip("'")
+        if not text:
+            continue
+        if text == "~":
+            candidate = Path.home().resolve()
+        elif text == ".":
+            candidate = Path(get_project_root()).resolve()
+        else:
+            candidate = Path(text)
+            if not candidate.is_absolute():
+                errors.append(f"不是绝对路径：{text}")
+                continue
+            candidate = candidate.resolve()
+
+        if len(candidate.parts) <= 1:
+            errors.append(f"不能使用盘符根目录：{candidate}")
+            continue
+        if is_system_protected(candidate):
+            errors.append(f"不能使用系统保护目录：{candidate}")
+            continue
+        if is_sensitive(candidate):
+            errors.append(f"不能把敏感目录设为工作区域：{candidate}")
+            continue
+
+        normalized = str(candidate)
+        if normalized not in valid:
+            valid.append(normalized)
+
+    if not valid:
+        errors.append("至少需要保留一个有效的工作区域")
+    return valid, errors
+
+
+def save_workspace_roots(lines: list[str]) -> tuple[bool, str]:
+    """把工作区域写回 config/agent.yml，并立即生效。"""
+    valid, errors = validate_workspace_inputs(lines)
+    if errors:
+        return False, "；".join(errors)
+
+    config = _read_config()
+    config["workspace_roots"] = valid
+
+    try:
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = _CONFIG_PATH.with_suffix(".yml.tmp")
+        with open(temp_path, "w", encoding="utf-8") as stream:
+            yaml.safe_dump(config, stream, allow_unicode=True, sort_keys=False)
+        os.replace(temp_path, _CONFIG_PATH)
+    except OSError as exc:
+        return False, f"保存配置失败：{exc}"
+
+    # 同步内存中的配置，保证当前进程立即生效
+    agent_conf["workspace_roots"] = valid
+    reload_workspace_roots()
+
+    missing = [root for root in valid if not Path(root).exists()]
+    note = f"；以下路径当前不存在，暂时无法使用：{', '.join(missing)}" if missing else ""
+    return True, f"已保存 {len(valid)} 个工作区域，立即生效{note}"
+
+
 def workspace_text() -> str:
     """返回适合展示给用户的工作区域文本。"""
     return "\n".join(f"- {root}" for root in WORKSPACE_ROOTS)
@@ -116,6 +212,11 @@ def workspace_root_of(path: Path) -> Path | None:
 
 def in_workspace(path: Path) -> bool:
     return workspace_root_of(path) is not None
+
+
+def is_workspace_root(path: Path) -> bool:
+    """判断路径是否正好是某个工作区域的根目录。"""
+    return any(_norm(path) == _norm(root) for root in WORKSPACE_ROOTS)
 
 
 def is_sensitive(path: Path) -> bool:
@@ -221,7 +322,9 @@ _DANGEROUS_COMMANDS = [
     (re.compile(r"\bbcdedit\b", re.IGNORECASE), "修改启动配置"),
     (re.compile(r"\breg\s+delete\b", re.IGNORECASE), "删除注册表项"),
     (re.compile(r"\bshutdown\b", re.IGNORECASE), "关机或重启"),
-    (re.compile(r"\bdel\b[^\n]*\s/[sq]\b", re.IGNORECASE), "强制或静默删除"),
+    (re.compile(r"\b(del|erase)\b", re.IGNORECASE), "命令行删除（请使用 delete_path 进入回收区）"),
+    (re.compile(r"\bRemove-Item\b", re.IGNORECASE), "PowerShell 删除（请使用 delete_path 进入回收区）"),
+    (re.compile(r"\brm\b", re.IGNORECASE), "命令行删除（请使用 delete_path 进入回收区）"),
     (re.compile(r"\b(rd|rmdir)\b[^\n]*\s/s\b", re.IGNORECASE), "递归删除目录"),
     (re.compile(r"\btaskkill\b[^\n]*/f\b", re.IGNORECASE), "强制结束进程"),
     (re.compile(r"\bnet\s+user\b[^\n]*/add\b", re.IGNORECASE), "创建系统用户"),
@@ -229,9 +332,23 @@ _DANGEROUS_COMMANDS = [
     (re.compile(r"\bcipher\b[^\n]*/w\b", re.IGNORECASE), "擦除磁盘空闲空间"),
     (re.compile(r"\bvssadmin\b[^\n]*delete", re.IGNORECASE), "删除卷影副本"),
     (re.compile(r"\bschtasks\b[^\n]*/create\b", re.IGNORECASE), "创建计划任务"),
+    # 以下为常见的绕过链路
+    (re.compile(r"%\s*(SystemRoot|windir|ProgramFiles|ProgramData)\s*%", re.IGNORECASE), "引用系统目录环境变量"),
+    (re.compile(r"-(EncodedCommand|enc)\b", re.IGNORECASE), "PowerShell 编码命令"),
+    (re.compile(r"\b(cd|chdir|pushd|Set-Location)\b[^\n]*\.\.", re.IGNORECASE), "向上一级切换目录可能越出工作区"),
+    (re.compile(r"\bcopy\s+con\b", re.IGNORECASE), "通过 copy con 创建文件（请使用 write_text_file）"),
+    (re.compile(r">\s*\S+\.(exe|dll|bat|cmd|ps1|vbs|js|msi|scr|com)\b", re.IGNORECASE), "重定向写入可执行文件"),
+    (re.compile(r"\b(Set-Content|Add-Content|Out-File)\b[^\n]*\.(exe|dll|bat|cmd|ps1|vbs|js|msi|scr|com)\b", re.IGNORECASE), "写入可执行文件（请使用 write_text_file）"),
+    (re.compile(r"\b(certutil|bitsadmin|mshta|rundll32|regsvr32)\b", re.IGNORECASE), "下载或执行外部程序"),
+    (re.compile(r"\^[A-Za-z]"), "cmd 转义符可能混淆命令"),
+    (re.compile(r"\battrib\b", re.IGNORECASE), "修改文件属性"),
+    (re.compile(r"\b(icacls|takeown)\b", re.IGNORECASE), "修改文件权限或所有权"),
+    (re.compile(r"\bwmic\b", re.IGNORECASE), "WMI 操作"),
+    (re.compile(r"\bStart-Process\b", re.IGNORECASE), "启动外部程序（请使用 open_path）"),
+    (re.compile(r"\b(Invoke-WebRequest|Invoke-Expression|iwr|iex)\b", re.IGNORECASE), "下载或执行脚本"),
 ]
 
-_WIN_ABS_PATH = re.compile(r"([A-Za-z]:\\[^\s\"'|<>]*)")
+_WIN_ABS_PATH = re.compile(r"([A-Za-z]:[\\/][^\s\"'|<>]*)")
 
 
 def check_command(command: str) -> str:
@@ -246,6 +363,8 @@ def check_command(command: str) -> str:
 
     for match in _WIN_ABS_PATH.finditer(text):
         raw = match.group(1).rstrip("\\.,;")
+        if len(raw) <= 2:  # 例如单独一个 C:，不当作越界路径
+            continue
         try:
             path = Path(raw).resolve()
         except OSError:
@@ -311,6 +430,16 @@ def describe_operation(name: str, args: dict) -> tuple[str, str]:
 
 def operation_risk(name: str, args: dict) -> str:
     """返回这个操作的风险说明。"""
+    if name == "get_system_info":
+        return (
+            "会读取系统版本、主机名、当前用户名、内存和磁盘信息。"
+            "这些信息只用于回答，不会上传；但仍可能包含设备标识。"
+        )
+    if name == "list_processes":
+        return (
+            "会读取当前运行的程序列表和所属用户。"
+            "这些信息只用于回答，不会上传；但可能暴露你正在使用哪些软件。"
+        )
     if name == "write_text_file":
         if str(args.get("mode", "write")) == "append":
             return "会在文件末尾增加内容，不会删除原有内容。"

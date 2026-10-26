@@ -48,11 +48,13 @@
 
 **工作区域**：`config/agent.yml` 的 `workspace_roots` 决定所有路径操作的边界（默认用户目录 + 项目根）；敏感目录（`.ssh`、`.aws` 等）一律拒绝。读取、搜索、写入、删除、命令 `cwd` 都受限。
 
-**只读工具**：`get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes`，模型调用后立即执行，但仍受工作区限制。
+**只读工具（直接执行）**：`list_directory`、`read_text_file`、`search_files`、`search_text`，模型调用后立即执行，但仍受工作区限制。
 
-**有副作用工具**：`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`，统一在 `CONFIRM_TOOLS` 注册，由 `HumanInTheLoopMiddleware` 拦截。确认卡片用大白话说明“做什么、目标、风险、影响范围”。
+**敏感读取（需确认）**：`get_system_info`、`list_processes`，会读取设备标识或正在使用的软件。
 
-**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；13 条危险命令黑名单；命令中的越界路径拒绝；单轮最多 20 次工具调用。
+**修改类工具（需确认）**：`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`，统一在 `CONFIRM_TOOLS` 注册，由 `HumanInTheLoopMiddleware` 拦截。确认卡片用大白话说明“做什么、目标、风险、影响范围”。
+
+**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；单轮最多 20 次工具调用。
 
 **操作留痕**：聊天页「本次操作记录」展示每一步的人话解释；`logs/audit_YYYYMMDD.jsonl` 记录结构化审计日志。
 
@@ -75,7 +77,7 @@ env_patch/    .pth + sitecustomize.py
 ## 7. 关键约束
 
 - **默认短期记忆**：输入框左侧的记忆按钮可选短期（默认，不存档）/ 本地 JSON 存档 / PostgreSQL；侧边栏管理会话 ID。
-- **工作区域是硬边界**：所有文件操作（包括读取）必须在 `workspace_roots` 内；敏感目录默认拒绝；改配置后需重启。
+- **工作区域是硬边界**：所有文件操作（包括读取）必须在 `workspace_roots` 内；敏感目录默认拒绝；可在输入框左侧「工作区域」按钮修改，保存后立即生效。
 - **消息块级流式**：只输出不带 `tool_calls` 的 `AIMessage` 文本，工具中间消息不显示；操作记录单独展示。
 - **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；目前只支持全部确认/全部拒绝。
 - **删除默认进回收区**：`.agent_trash` 可手动恢复；`permanent=True` 才永久删除。

@@ -31,6 +31,7 @@ from agent.tools.safety import (
     check_write_suffix,
     format_size,
     guard_path,
+    is_workspace_root,
     move_to_trash,
     workspace_roots,
 )
@@ -331,6 +332,8 @@ def move_path(source: str, destination: str) -> str:
         return error
     if not src.exists():
         return f"源路径不存在：{src}"
+    if is_workspace_root(src):
+        return "不能移动工作区域根目录本身，请选择具体的子目录或文件。"
     if dst.is_dir():
         dst = dst / src.name
 
@@ -354,6 +357,8 @@ def copy_path(source: str, destination: str) -> str:
         return error
     if not src.exists():
         return f"源路径不存在：{src}"
+    if is_workspace_root(src):
+        return "不能复制工作区域根目录本身，请选择具体的子目录或文件。"
     if dst.is_dir():
         dst = dst / src.name
 
@@ -377,6 +382,8 @@ def delete_path(path: str, recursive: bool = False, permanent: bool = False) -> 
         return error
     if not target.exists():
         return f"路径不存在：{target}"
+    if is_workspace_root(target):
+        return "不能删除工作区域根目录本身，请先移除该工作区域或换一个子目录。"
 
     # 空目录：直接删，不需要进回收区
     if target.is_dir() and not recursive:
@@ -418,6 +425,10 @@ def run_command(command: str, cwd: str | None = None, timeout: int = 60) -> str:
             return error
         if not workdir.is_dir():
             return f"工作目录不存在：{workdir}"
+    else:
+        # 未指定 cwd 时，默认在第一个工作区根目录执行，避免继承到工作区外的启动目录
+        roots = workspace_roots()
+        workdir = roots[0] if roots else None
 
     timeout = max(1, min(timeout, 600))
     try:

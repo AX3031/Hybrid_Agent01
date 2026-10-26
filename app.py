@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 from typing import Iterator
 
 import streamlit as st
@@ -7,10 +6,14 @@ import streamlit as st
 from agent.react_agent import AgentEvent, ReactAgent
 from agent.tools.safety import (
     describe_operation,
+    expand_path,
+    in_workspace,
     measure_path,
     operation_risk,
     operation_target,
+    save_workspace_roots,
     summarize_result,
+    workspace_roots,
     workspace_text,
 )
 from memorys.memory_factory import DEFAULT_MEMORY_MODE, MEMORY_MODE_LABELS
@@ -83,7 +86,7 @@ def _render_operations(operations: list[dict], expanded: bool = True) -> None:
             name = operation.get("name", "")
             args = operation.get("args", {}) or {}
             title, detail = describe_operation(name, args)
-            status = operation.get("status", "success")
+            status = operation.get("status") or "success"
             status_text = "已完成" if status == "success" else "未完成"
             st.markdown(f"**{index}. {title}（{status_text}）**")
             st.write(detail)
@@ -119,8 +122,8 @@ def _render_hitl_block(agent: ReactAgent) -> None:
 
             if name == "delete_path":
                 try:
-                    path = Path(str(args.get("path", "")))
-                    if path.exists():
+                    path = expand_path(str(args.get("path", "")))
+                    if in_workspace(path) and path.exists():
                         st.info(f"影响范围：{measure_path(path)}")
                 except OSError:
                     pass
@@ -194,6 +197,37 @@ with st.bottom:
             selected_mode = MEMORY_MODE_LABELS[selected_label]
             st.caption(f"{MEMORY_MODE_HINTS[selected_mode]}")
 
+        with st.popover(
+            "工作区域",
+            icon=":material/folder_open:",
+            type="tertiary",
+            width="content",
+        ):
+            st.markdown("**当前工作区域**")
+            st.code(workspace_text(), language=None)
+            st.caption(
+                "所有文件操作（包括读取和搜索）只能在这里面执行。"
+                "每行写一个绝对路径，例如 C:\\Users\\你的用户名\\Desktop。"
+            )
+            if "workspace_roots_input" not in st.session_state:
+                st.session_state["workspace_roots_input"] = "\n".join(
+                    str(root) for root in workspace_roots()
+                )
+            workspace_input = st.text_area(
+                "工作区域根目录",
+                height=140,
+                key="workspace_roots_input",
+                help="每行一个绝对路径；支持 ~（用户目录）和 .（项目根）。",
+            )
+            if st.button("保存并应用", type="primary", use_container_width=True):
+                ok, message = save_workspace_roots(workspace_input.splitlines())
+                if ok:
+                    st.success(message)
+                    st.session_state.pop("workspace_roots_input", None)
+                    st.rerun()
+                else:
+                    st.error(message)
+
         prompt = st.chat_input("告诉我你想在这台电脑上做什么", width="stretch")
 
 selected_mode = MEMORY_MODE_LABELS[selected_label]
@@ -219,7 +253,7 @@ with st.sidebar:
     st.subheader("工作区域")
     st.caption("所有文件操作（包括读取）只能在这个范围内执行。")
     st.code(workspace_text(), language=None)
-    st.caption("如需修改，编辑 config/agent.yml 的 workspace_roots 后重启应用。")
+    st.caption("点击输入框左侧的「工作区域」按钮可以修改，保存后立即生效。")
 
 # 记忆方式变化：销毁旧 Agent，稍后按新模式重建
 mode_changed = st.session_state.get("memory_mode") != selected_mode
@@ -269,9 +303,12 @@ if clear_memory:
 if st.session_state.get("memory_error"):
     st.warning(f"「{selected_label}」初始化失败，已回退为短期记忆：{st.session_state['memory_error']}")
 
-for message in st.session_state["message"]:
+message_list = st.session_state["message"]
+last_index = len(message_list) - 1
+for index, message in enumerate(message_list):
     st.chat_message(message["role"]).write(message["content"])
-    _render_operations(message.get("operations", []), expanded=False)
+    # 最新一轮的操作记录默认展开，历史记录折叠
+    _render_operations(message.get("operations", []), expanded=(index == last_index))
 
 # 有待确认的危险操作时，在消息区展示确认卡片
 _render_hitl_block(st.session_state["agent"])
