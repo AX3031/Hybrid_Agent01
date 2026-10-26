@@ -18,6 +18,7 @@
 - `app.py`：`_render_events` / `_render_hitl_block`，渲染确认卡片并支持批准/拒绝。
 - `config/model.yml`：由 `config/rag.yml` 重命名而来，只保留对话与备用对话模型。
 - `docs/OS_TOOLS.md`：电脑操作功能说明，包含普通使用者场景、确认卡片、安全边界、FAQ、工具参数表与扩展方法。
+- `docs/SECURITY_REPORT.md`：安全评估报告，包含会做/能做/不会做/不能做矩阵、当前措施实现、STRIDE 与 OWASP LLM Top 10 映射、技术债与 P0–P2 改进路线。
 - `agent/tools/safety.py`：工作区域、敏感目录、系统目录、可执行后缀、危险命令黑名单、越界路径检查、覆盖备份、回收区，以及 `describe_operation` / `operation_risk` / `operation_target` 人话解释。
 - `utils/audit_logger.py`：每次工具调用写入 `logs/audit_YYYYMMDD.jsonl`（时间、会话、工具、参数、状态、结果摘要）。
 - `config/agent.yml`：新增 `workspace_roots` 与 `sensitive_dirs`。

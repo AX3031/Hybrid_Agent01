@@ -1,5 +1,0 @@
-2026-10-25 22:54:47,816 - agent - INFO - os_tools.py:313 - [write_text_file]已写入 C:\Users\Administrator\AppData\Local\Temp\tmpiz1as24w\a.txt（mode=write）
-2026-10-25 22:54:47,822 - agent - INFO - os_tools.py:371 - [copy_path]已复制 C:\Users\Administrator\AppData\Local\Temp\tmpiz1as24w\a.txt -> C:\Users\Administrator\AppData\Local\Temp\tmpiz1as24w\b.txt
-2026-10-25 22:54:47,823 - agent - INFO - os_tools.py:347 - [move_path]已移动 C:\Users\Administrator\AppData\Local\Temp\tmpiz1as24w\b.txt -> C:\Users\Administrator\AppData\Local\Temp\tmpiz1as24w\c.txt
-2026-10-25 22:54:47,831 - agent - INFO - os_tools.py:420 - [run_command]执行 echo ok，退出码 0
-2026-10-25 22:54:47,833 - agent - INFO - os_tools.py:394 - [delete_path]已删除 C:\Users\Administrator\AppData\Local\Temp\tmpiz1as24w（recursive=True）

@@ -95,6 +95,7 @@ env_patch/    .pth + sitecustomize.py
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
 | 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
+| 安全能力、威胁模型、技术债与改进路线？ | [SECURITY_REPORT.md](SECURITY_REPORT.md) |
 | 报告场景怎么切换？ | [ARCHITECTURE 第 8 节](ARCHITECTURE.md#8-报告场景与动态提示词) |
 | 配置在哪改？ | [ARCHITECTURE 第 9 节](ARCHITECTURE.md#9-配置体系) + [README 配置速查](../README.md#7-配置入口速查) |
 | 想加工具/上传/记忆？ | [ARCHITECTURE 第 13 节](ARCHITECTURE.md#13-扩展指南) |

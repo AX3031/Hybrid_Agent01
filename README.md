@@ -26,6 +26,7 @@
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前状态的深度参考：模块、流程、配置、扩展、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构图（人看） |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明（普通人向 + 开发者参数） |
+| [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：能力矩阵、威胁模型、技术债与改进路线 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更日志（Keep a Changelog 格式，未发布改动在 `[Unreleased]`） |
 
@@ -284,6 +285,7 @@ project2/
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构、模块职责、调用时序、配置、扩展指南、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构总览图 |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明：工作区域、确认卡片、回收区、审计日志、参数表 |
+| [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：会做/能做/不会做/不能做、措施实现、STRIDE/OWASP 映射、技术债、改进路线 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更：加了什么 / 改了什么 / 修了什么 |
 
