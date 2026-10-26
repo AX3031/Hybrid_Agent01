@@ -16,6 +16,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "requests>=2.31.0",
     "streamlit>=1.64.0",
+    "omnipilot-agent[gui]>=0.1.0",
 ]
 
 [[tool.uv.index]]

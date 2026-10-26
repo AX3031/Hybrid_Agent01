@@ -105,7 +105,7 @@ def _render_hitl_block(agent: ReactAgent) -> None:
     with st.container(border=True):
         st.warning(
             f"下面有 {len(actions)} 个操作需要你确认。"
-            "它们会修改这台电脑上的文件或设置，确认前请看清每一步。"
+            "它们会操作这台电脑（修改文件、设置或控制界面），确认前请看清每一步。"
         )
 
         for index, action in enumerate(actions, start=1):

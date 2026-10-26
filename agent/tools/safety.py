@@ -382,6 +382,114 @@ def check_command(command: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _preview(text: object, limit: int = 24) -> str:
+    """把要展示或输入的文字压成一行短预览。"""
+    value = str(text or "").replace("\r", " ").replace("\n", " ").strip()
+    return value if len(value) <= limit else f"{value[:limit]}…"
+
+
+def _describe_computer_use(action: str, args: dict) -> tuple[str, str]:
+    """computer_use 的人话标题与说明。"""
+    x, y = args.get("x", "?"), args.get("y", "?")
+    if action == "screenshot":
+        target = f"区域 {args.get('region')}" if args.get("region") else "整个屏幕"
+        return "截取屏幕画面", f"截取{target}交给模型查看。截图可能包含密码、聊天记录等隐私内容。"
+    if action == "screen_size":
+        return "查看屏幕分辨率", "读取当前屏幕的像素尺寸，不截取画面。"
+    if action == "locate_image":
+        return "在屏幕上查找图片", f"在屏幕上查找模板图片「{args.get('image_path', '')}」。"
+    if action == "wait":
+        return "等待界面响应", f"等待 {args.get('seconds', 1)} 秒，不修改任何内容。"
+    if action == "click":
+        return (
+            "点击屏幕",
+            f"在坐标 ({x}, {y}) 用 {args.get('button', 'left')} 键点击 {args.get('clicks', 1)} 次。",
+        )
+    if action == "double_click":
+        return "双击屏幕", f"在坐标 ({x}, {y}) 双击。"
+    if action == "right_click":
+        return "右键点击", f"在坐标 ({x}, {y}) 右键点击。"
+    if action == "move_mouse":
+        return "移动鼠标", f"把鼠标移动到坐标 ({x}, {y})，不点击。"
+    if action == "drag":
+        return (
+            "拖拽鼠标",
+            f"从 ({args.get('x1')}, {args.get('y1')}) 拖到 ({args.get('x2')}, {args.get('y2')})。",
+        )
+    if action == "scroll":
+        where = f"，位置 ({x}, {y})" if x != "?" else ""
+        return "滚动鼠标滚轮", f"滚动 {args.get('amount')} 格{where}。"
+    if action == "type_text":
+        return (
+            "输入文字",
+            (
+                f"向当前焦点窗口输入「{_preview(args.get('text', ''))}」。"
+                "文字会落到当前焦点窗口，且输入过程会覆盖剪贴板。"
+            ),
+        )
+    if action == "press_key":
+        return "按键", f"按下「{args.get('key', '')}」{args.get('presses', 1)} 次。"
+    if action == "hotkey":
+        keys = args.get("keys") or []
+        if isinstance(keys, str):
+            keys = [keys]
+        return "按下组合键", f"按下「{'+'.join(str(k) for k in keys)}」。"
+    if action == "clipboard_get":
+        return "读取剪贴板", "读取当前剪贴板里的文字（可能包含密码、验证码等敏感信息）。"
+    if action == "clipboard_set":
+        return (
+            "写入剪贴板",
+            f"把「{_preview(args.get('text', ''))}」写入剪贴板，原内容会被覆盖。",
+        )
+    if action == "app_open":
+        return "启动应用", f"打开「{args.get('name', '')}」。"
+    if action == "app_close":
+        force = "（强制结束）" if args.get("force") else ""
+        return "关闭应用", f"关闭「{args.get('name', '')}」{force}。"
+    if action == "app_list":
+        return "查看运行中的应用", "列出当前运行的应用/进程，可能暴露你正在使用哪些软件。"
+    return "控制桌面", "执行了一个桌面控制动作。"
+
+
+def _computer_use_risk(action: str) -> str:
+    if action == "screenshot":
+        return "截图可能包含密码、聊天记录、邮件等隐私内容，并会作为图片发送给模型分析。"
+    if action == "clipboard_get":
+        return "剪贴板可能包含密码、验证码、密钥等敏感信息。"
+    if action in {"type_text", "clipboard_set"}:
+        return (
+            "会向当前焦点窗口输入/写入文字；如果焦点窗口不对，文字可能落到别处。"
+            "type_text 会覆盖剪贴板。"
+        )
+    if action in {"click", "double_click", "right_click", "drag", "scroll"}:
+        return "会在真实屏幕上操作鼠标；坐标错误可能误点其他按钮或拖错窗口。"
+    if action == "app_open":
+        return "会启动本机程序。工具会拒绝终端、脚本宿主、注册表和磁盘工具。"
+    if action == "app_close":
+        return "会终止目标程序，未保存的数据可能丢失。系统关键进程会被拒绝关闭。"
+    if action == "app_list":
+        return "会读取当前运行的程序列表，可能暴露你正在使用哪些软件。"
+    if action in {"screen_size", "locate_image", "wait"}:
+        return "只读取屏幕尺寸/查找图片/等待，不修改任何内容。"
+    return "会操作真实桌面，请确认坐标、目标窗口和文字内容。"
+
+
+def _computer_use_target(action: str, args: dict) -> str:
+    if action == "screenshot":
+        return str(args.get("region") or "整个屏幕")
+    if action in {"click", "double_click", "right_click", "move_mouse"}:
+        return f"({args.get('x')}, {args.get('y')})"
+    if action == "drag":
+        return f"({args.get('x1')},{args.get('y1')}) -> ({args.get('x2')},{args.get('y2')})"
+    if action in {"type_text", "clipboard_set"}:
+        return _preview(args.get("text", ""), 80)
+    if action in {"app_open", "app_close"}:
+        return str(args.get("name", ""))
+    if action == "locate_image":
+        return str(args.get("image_path", ""))
+    return ""
+
+
 def describe_operation(name: str, args: dict) -> tuple[str, str]:
     """返回 `(一句话标题, 小白解释)`。"""
     path = str(args.get("path", ""))
@@ -389,6 +497,9 @@ def describe_operation(name: str, args: dict) -> tuple[str, str]:
     destination = str(args.get("destination", ""))
     command = str(args.get("command", ""))
     mode = str(args.get("mode", "write"))
+
+    if name == "computer_use":
+        return _describe_computer_use(str(args.get("action", "")), args)
 
     if name == "get_system_info":
         return "查看电脑配置", "读取了系统版本、内存和磁盘占用，没有改动任何文件。"
@@ -430,6 +541,8 @@ def describe_operation(name: str, args: dict) -> tuple[str, str]:
 
 def operation_risk(name: str, args: dict) -> str:
     """返回这个操作的风险说明。"""
+    if name == "computer_use":
+        return _computer_use_risk(str(args.get("action", "")))
     if name == "get_system_info":
         return (
             "会读取系统版本、主机名、当前用户名、内存和磁盘信息。"
@@ -466,6 +579,8 @@ def operation_risk(name: str, args: dict) -> str:
 
 def operation_target(name: str, args: dict) -> str:
     """返回确认卡片上要展示的目标，便于用户核对。"""
+    if name == "computer_use":
+        return _computer_use_target(str(args.get("action", "")), args)
     if name in {"write_text_file", "create_directory", "delete_path", "read_text_file"}:
         return str(args.get("path", ""))
     if name in {"move_path", "copy_path"}:
@@ -510,6 +625,68 @@ def summarize_result(result: str, limit: int = 160) -> str:
     if len(first) > limit:
         first = first[:limit] + "…"
     return first
+
+
+def sanitize_tool_args(tool_name: str, args: dict) -> dict:
+    """日志/审计用的参数脱敏。
+
+    目前只针对 computer_use 的文字输入与剪贴板写入：这些内容可能是密码、验证码或
+    密钥，不应原样落盘。工具本身仍然收到完整参数。
+    """
+    if tool_name != "computer_use" or not isinstance(args, dict):
+        return args
+    action = str(args.get("action", ""))
+    if action in {"type_text", "clipboard_set"}:
+        text = str(args.get("text", ""))
+        return {**args, "text": f"***（已脱敏，{len(text)} 字符）"}
+    return args
+
+
+def sanitize_tool_result(tool_name: str, args: dict, content: object) -> str:
+    """日志/审计用的结果脱敏；图片 base64 与剪贴板正文不落盘。"""
+    text = summarize_content_for_log(content)
+    if (
+        tool_name == "computer_use"
+        and isinstance(args, dict)
+        and args.get("action") == "clipboard_get"
+    ):
+        return f"***（剪贴板内容已脱敏，{len(text)} 字符）"
+    return text
+
+
+def summarize_content_for_log(content: object, limit: int = 2000) -> str:
+    """把工具结果转成可读文本，供操作记录与审计日志使用。
+
+    工具可能返回 LangChain content block 列表；截图会带一大段 base64，直接 str()
+    会把日志和界面撑爆，因此这里把图片块替换成占位说明，只保留文字部分。
+    """
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                block_type = str(block.get("type", ""))
+                if block_type == "text":
+                    parts.append(str(block.get("text", "")))
+                elif block_type in {"image", "image_url"}:
+                    parts.append("[图片已附加给模型，base64 已省略]")
+                elif block_type in {"file", "document"}:
+                    parts.append(f"[{block_type} 内容已省略]")
+                else:
+                    parts.append(f"[{block_type or '未知内容块'}]")
+            else:
+                parts.append(str(block))
+        text = "\n".join(part for part in parts if part)
+    else:
+        text = str(content or "")
+
+    text = text.strip()
+    if len(text) > limit:
+        text = text[:limit] + f"…（已截断，共 {len(text)} 字符）"
+    return text
 
 
 def format_size(size: int) -> str:

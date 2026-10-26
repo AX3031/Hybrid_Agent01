@@ -5,13 +5,15 @@
 > - **普通使用者**：读第 1–10 节，用大白话解释"能做什么、边界在哪、每一步怎么确认"。
 > - **开发者**：读第 11 节，包含工具参数、安全阈值、代码位置和扩展方法。
 >
-> 代码实现：[agent/tools/os_tools.py](../agent/tools/os_tools.py)　安全策略：[agent/tools/safety.py](../agent/tools/safety.py)　确认与事件：[agent/react_agent.py](../agent/react_agent.py)　界面：[app.py](../app.py)
+> 代码实现：[agent/tools/os_tools.py](../agent/tools/os_tools.py)　桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)　安全策略：[agent/tools/safety.py](../agent/tools/safety.py)　确认与事件：[agent/react_agent.py](../agent/react_agent.py)　界面：[app.py](../app.py)
+>
+> OmniPilot 桌面控制的完整接入故事、用法与风险，见 [OMNIPILOT_INTEGRATION_REPORT.md](OMNIPILOT_INTEGRATION_REPORT.md)。
 
 ---
 
 ## 0. 先看这张安全地图
 
-这个助手不是一个"拿到电脑就随便动"的程序。它在六道防线后面工作：
+这个助手不是一个"拿到电脑就随便动"的程序。它在七道防线后面工作：
 
 | 防线 | 作用 | 你能看到什么 |
 | --- | --- | --- |
@@ -21,6 +23,7 @@
 | 4. 回收区 | 删除默认只是移到 `.agent_trash` | 操作记录里显示回收路径 |
 | 5. 自动备份 | 覆盖已有文件前先备份 | 操作记录里显示备份路径 |
 | 6. 命令拦截 | 危险命令、越界路径直接拒绝 | 工具返回"被安全策略拦截" |
+| 7. 桌面控制确认 | 截图/剪贴板/应用列表和鼠标键盘动作必须确认 | 确认卡片说明坐标、目标窗口和隐私风险 |
 
 事后你还能查两本账：聊天页面的「操作记录」，以及 `logs/audit_YYYYMMDD.jsonl` 审计日志。
 
@@ -32,7 +35,8 @@
 
 - 想知道电脑状态，它去查；
 - 想找文件，它去翻；
-- 想改文件、删文件、执行命令，它会先把"要做什么"摆给你看，你点确认它才动手。
+- 想改文件、删文件、执行命令，它会先把"要做什么"摆给你看，你点确认它才动手；
+- 想看屏幕、点按钮、输入文字，它会先截图观察，再一步一步操作鼠标键盘，每一步都等你确认。
 
 它不会偷偷执行。读取系统信息/进程、以及所有会改变电脑状态的操作，都必须经过你确认；所有实际执行的操作，都会留下记录。
 
@@ -158,11 +162,11 @@ workspace_roots:
 
 | 类型 | 包括什么 | 它的行为 | 你需要做什么 |
 | --- | --- | --- | --- |
-| **只读（直接执行）** | 列目录、读文件、按名字搜、按内容搜 | 直接执行，不打扰你 | 无 |
-| **敏感读取（需确认）** | 看系统信息、看进程列表 | 先停下，弹出确认卡片 | 点「我确认，执行」或「不要执行」 |
-| **修改类（有副作用）** | 写文件、建目录、移动、复制、删除、执行命令、打开程序 | 先停下，弹出确认卡片 | 点「我确认，执行」或「不要执行」 |
+| **只读（直接执行）** | 列目录、读文件、按名字搜、按内容搜；桌面的看屏幕尺寸、屏幕找图、等待 | 直接执行，不打扰你 | 无 |
+| **敏感读取（需确认）** | 看系统信息、看进程列表；桌面的截图、读剪贴板、列应用 | 先停下，弹出确认卡片 | 点「我确认，执行」或「不要执行」 |
+| **修改类（有副作用）** | 写文件、建目录、移动、复制、删除、执行命令、打开程序；桌面的鼠标点击/拖拽/滚动、键盘输入、写剪贴板、启停应用 | 先停下，弹出确认卡片 | 点「我确认，执行」或「不要执行」 |
 
-查看类也会被记录，只是不需要你点头。
+查看类也会被记录，只是不需要你点头。桌面控制是一个工具（`computer_use`）里的 18 个动作，确认粒度按动作而不是按工具。
 
 ---
 
@@ -267,9 +271,9 @@ workspace_roots:
 
 ---
 
-## 5. 七种"修改"能力
+## 5. 七种"修改"能力与桌面控制
 
-这一节的所有操作都会弹出确认卡片，并且都会写入审计日志。
+5.1–5.7 是文件与命令类修改；5.8–5.12 是桌面控制。除了 5.8 的查看分辨率和部分只读动作，其余都会弹出确认卡片，并写入审计日志。
 
 ### 5.1 写入或追加文本
 
@@ -399,14 +403,110 @@ workspace_roots:
 
 ---
 
+### 5.8 截取屏幕与查看分辨率
+
+**你可以这样说：**
+
+- "看看当前屏幕"
+- "屏幕上现在是什么界面？"
+- "当前屏幕分辨率是多少？"
+
+**动作：**
+
+- `screenshot`：截取全屏或指定区域，图片会附加给模型；**需要确认**。
+- `screen_size`：只读取分辨率，直接执行。
+- `locate_image`：给一张模板 PNG，让它在屏幕上找；直接执行。省略 `confidence` 时用精确匹配，不需要 `opencv-python`；填写 0–1 的阈值则需要安装 `opencv-python`。
+- `wait`：等待 0–10 秒，让界面完成响应；直接执行。
+
+**限制与风险：**
+
+- 截图可能包含密码、聊天记录、邮件等隐私内容，并会发送给模型分析；
+- 没有控件树/OCR，坐标要靠截图观察或模板匹配；
+- 多显示器/DPI 缩放可能让坐标偏移；点击不准时先 `screen_size` 或 `locate_image`；
+- 截图以 base64 写入会话记忆，连续截图会让会话体积变大。
+
+---
+
+### 5.9 鼠标操作
+
+**你可以这样说：**
+
+- "点一下屏幕上 (800, 450) 的位置"
+- "把鼠标移到右上角"
+- "把窗口从 (400,300) 拖到 (900,600)"
+- "向下滚 5 格"
+
+**动作：** `click`、`double_click`、`right_click`、`move_mouse`、`drag`、`scroll`，都需要确认。
+
+**规则：**
+
+- 坐标原点在屏幕左上角，单位是像素；
+- 点击前先截图确认目标位置；
+- 一次只做一个动作，做完再截图验证；
+- 坐标错误可能误点其他按钮。
+
+---
+
+### 5.10 键盘输入与快捷键
+
+**你可以这样说：**
+
+- "在输入框里输入 hello"
+- "按一下回车"
+- "按 Ctrl+S 保存"
+
+**动作：** `type_text`、`press_key`、`hotkey`，都需要确认。
+
+**规则：**
+
+- `type_text` 输入到**当前焦点窗口**；焦点不对时文字可能落到别处；
+- 中文/Unicode 通过剪贴板粘贴实现，会覆盖剪贴板；
+- 不要主动输入密码、验证码、密钥；用户明确要求时先提醒风险；
+- `press_key` 支持 enter/tab/escape/f5/up/down 等；`hotkey` 用 `['ctrl','s']` 或 `'ctrl+s'`。
+
+---
+
+### 5.11 剪贴板
+
+**你可以这样说：**
+
+- "看看剪贴板里是什么"
+- "把这段文字复制到剪贴板"
+
+**动作：** `clipboard_get` / `clipboard_set`，都需要确认。
+
+**风险：** 剪贴板可能包含密码、验证码、密钥；读取和写入都会覆盖或暴露内容。审计日志里会对剪贴板正文做脱敏。
+
+---
+
+### 5.12 启动、关闭与查看应用
+
+**你可以这样说：**
+
+- "打开记事本"
+- "把 Chrome 关掉"
+- "现在有哪些程序在运行？"
+
+**动作：** `app_open` / `app_close` / `app_list`，都需要确认。
+
+**安全边界：**
+
+- `app_open` 拒绝启动终端、脚本宿主、注册表、磁盘和策略工具（cmd、PowerShell、WSL、cscript、mshta、regedit、diskpart、bcdedit 等），避免绕过 `run_command` 的黑名单；
+- 应用名/参数中不允许 `& | < > ^ % ( ) " ;` 等 cmd 元字符，防止 `cmd /c start` 被解释成多条命令；
+- `app_close` 拒绝关闭系统关键进程（explorer、svchost、lsass、winlogon 等）；
+- 关闭用户程序前先提醒保存，未保存的数据可能丢失；
+- 通过路径启动程序时，路径必须在工作区域内。
+
+---
+
 ## 6. 确认卡片：每一步都用人话解释
 
 当它要做修改类操作时，聊天区会出现这样一块内容：
 
 ```text
 ┌──────────────────────────────────────────────────┐
-│ 下面有 2 个操作需要你确认。它们会修改这台电脑      │
-│ 上的文件或设置，确认前请看清每一步。              │
+│ 下面有 2 个操作需要你确认。它们会操作这台电脑      │
+│（修改文件、设置或控制界面），确认前请看清每一步。  │
 │                                                  │
 │ 1. 移到回收区                                     │
 │    把「C:\Users\...\test.tmp」移到工作区的        │
@@ -478,7 +578,7 @@ workspace_roots:
 
 ---
 
-## 8. 六道自动保险
+## 8. 八道自动保险
 
 ### 8.1 回收区
 
@@ -528,14 +628,30 @@ workspace_roots:
 {"time": "2026-10-26T10:45:23", "session_id": "user_001", "tool": "read_text_file", "args": {"path": "C:\\...\\a.txt"}, "status": "success", "result": "文件：C:\\..."}
 ```
 
+### 8.7 桌面应用与进程黑名单
+
+- `app_open` 拒绝终端、脚本宿主、注册表、磁盘和策略工具，避免“开终端→敲命令”绕过 `run_command` 黑名单；
+- 应用名与启动参数拒绝 `&`、竖线、重定向、`^`、`%`、括号、引号、分号等 cmd 元字符；
+- `app_close` 拒绝关闭系统关键进程（explorer、svchost、lsass 等），缩写也拦；
+- 实现位置：`agent/tools/computer_use.py` 的 `_BLOCKED_APPS` / `_BLOCKED_APP_KEYWORDS` / `_BLOCKED_APP_CHARS` / `_PROTECTED_PROCESSES`。
+
+### 8.8 日志脱敏
+
+- 截图的 base64 不写操作记录与审计日志，只留 `[图片已附加给模型，base64 已省略]`；
+- `type_text` / `clipboard_set` 的参数、`clipboard_get` 的结果在审计日志里显示为 `***（已脱敏，N 字符）`；
+- 实现位置：`agent/tools/safety.py` 的 `summarize_content_for_log` / `sanitize_tool_args` / `sanitize_tool_result`；
+- 局限：其他工具的参数（如 `write_text_file` 的内容、`run_command` 的完整命令）仍未通用脱敏。
+
 ---
 
 ## 9. 它现在还不能做什么
 
 | 做不到 | 说明 |
 | --- | --- |
-| 点击按钮、切换窗口、模拟键鼠 | 没有 GUI 自动化能力 |
-| 截图、识别屏幕内容 | 没有屏幕捕获能力 |
+| 控件树/OCR/窗口选择器 | 目前靠截图 + 坐标/模板匹配 |
+| 多显示器/DPI 自动校准 | 坐标可能偏移，需要手动核对 |
+| 启动终端/脚本宿主/注册表/磁盘工具 | 为防止绕过 `run_command`，`app_open` 直接拒绝 |
+| 关闭系统关键进程 | `app_close` 直接拒绝 |
 | 删除到 Windows 回收站 | 用的是工作区内的 `.agent_trash` |
 | 命令沙箱隔离 | 只有黑名单和路径检查，不是沙箱 |
 | 逐项确认、改参数 | 只能全部确认或全部拒绝 |
@@ -602,6 +718,27 @@ workspace_roots:
 | 12 | `run_command` | `command`、`cwd`、`timeout` | `None`、`60` | **是** | 是（cwd + 命令内路径） |
 | 13 | `open_path` | `path` | — | **是** | 是（URL 除外） |
 
+桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)，一个工具 18 个动作。
+
+| 动作 | 主要参数 | 确认 |
+| --- | --- | --- |
+| `screenshot` | `region`、`attach` | **是** |
+| `screen_size` | 无 | 否 |
+| `locate_image` | `image_path`、`confidence` | 否 |
+| `wait` | `seconds` | 否 |
+| `click` | `x`、`y`、`button`、`clicks` | **是** |
+| `double_click` / `right_click` | `x`、`y` | **是** |
+| `move_mouse` | `x`、`y` | **是** |
+| `drag` | `x1`、`y1`、`x2`、`y2`、`button` | **是** |
+| `scroll` | `amount`、`x`、`y` | **是** |
+| `type_text` | `text`、`interval` | **是** |
+| `press_key` | `key`、`presses` | **是** |
+| `hotkey` | `keys` | **是** |
+| `clipboard_get` / `clipboard_set` | `text`（写入时） | **是** |
+| `app_open` | `name`、`arguments` | **是** |
+| `app_close` | `name`、`force` | **是** |
+| `app_list` | `name_filter`、`limit` | **是** |
+
 ### 11.2 工作区域配置
 
 `config/agent.yml`：
@@ -637,6 +774,11 @@ sensitive_dirs:
 | `_BACKUP_MAX_BYTES` | `safety.py` | 10 MB |
 | 危险命令黑名单 | `safety.py` | 28 条规则 |
 | `TOOL_CALL_LIMIT` | `react_agent.py` | 20 次/轮 |
+| `_MAX_TEXT_CHARS` | `computer_use.py` | 10000 字符/次 |
+| `_MAX_CLIPBOARD_CHARS` | `computer_use.py` | 20000 字符/次 |
+| `_MAX_WAIT_SECONDS` | `computer_use.py` | 10 秒 |
+| `_BLOCKED_APPS` | `computer_use.py` | 终端/脚本宿主/注册表/磁盘/策略工具 |
+| `_PROTECTED_PROCESSES` | `computer_use.py` | 系统关键进程 |
 
 代码内另有上限：目录 500 项、`max_chars` 50000、搜索 200 条、进程 100 个、命令 600 秒。
 
@@ -653,13 +795,20 @@ CONFIRM_TOOLS = {
     "delete_path": "删除文件或目录",
     "run_command": "执行系统命令",
     "open_path": "打开文件或网址",
+    "computer_use": "控制桌面（截图/鼠标/键盘/剪贴板/应用）",
 }
 
+_HITL_CONFIG = {
+    name: {"allowed_decisions": ["approve", "reject"]}
+    for name in CONFIRM_TOOLS
+}
+# computer_use 只读动作放行，其余动作确认
+_HITL_CONFIG["computer_use"]["when"] = lambda request: action_requires_confirmation(
+    (request.tool_call.get("args") or {}).get("action")
+)
+
 hitl_middleware = HumanInTheLoopMiddleware(
-    interrupt_on={
-        name: {"allowed_decisions": ["approve", "reject"]}
-        for name in CONFIRM_TOOLS
-    },
+    interrupt_on=_HITL_CONFIG,
     description_prefix="该操作会修改电脑状态，请确认参数后再决定是否执行",
 )
 ```
@@ -718,12 +867,14 @@ hitl_middleware = HumanInTheLoopMiddleware(
 5. 在 `safety.py` 的 `describe_operation` / `operation_risk` / `operation_target` 补上人话模板。
 6. 更新 `prompts/main_prompt.txt` 的工具清单。
 7. 同步本文 11.1、README 能力表、ARCHITECTURE 第 7 节、architecture.svg。
+8. 桌面类动作加到 `agent/tools/computer_use.py`：在 `_ACTION_PARAMS` / `_REQUIRED_PARAMS` / `_tool_instance` / `_prepare_arguments` 登记，并判断是否加入 `READ_ONLY_ACTIONS`；同时在 `safety.py` 的 `_describe_computer_use` / `_computer_use_risk` / `_computer_use_target` 补人话文案。
 
 ### 11.8 测试
 
 ```powershell
 # 工具本身（不调用模型）
 uv run -m agent.tools.os_tools
+uv run -m agent.tools.computer_use
 
 # 工作区与安全策略
 uv run python -c "from agent.tools.safety import workspace_text; print(workspace_text())"
@@ -737,3 +888,5 @@ uv run python -c "from agent.tools.safety import workspace_text; print(workspace
 - 操作记录依赖 `updates` 流；自定义中间件如果吞掉 ToolMessage，记录会缺失。
 - 历史会话从 checkpointer 恢复时没有操作记录（checkpointer 只存 messages）。
 - 界面保存使用 `yaml.safe_dump` 重写 `config/agent.yml`，原有注释会丢失。
+- 桌面控制依赖 pyautogui/Pillow，必须在有桌面会话的环境中运行；无头/SSH 环境只能跑文件、命令等非 GUI 工具，截图/键鼠/应用操作需要桌面会话。
+- 截图/剪贴板内容会进入模型上下文；审计日志已对图片 base64、`type_text`/`clipboard_set` 参数与 `clipboard_get` 结果做定向脱敏，但模型上下文本身不做持久化脱敏。

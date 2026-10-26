@@ -14,6 +14,8 @@ from agent.tools.agent_tools import (
     get_weather, get_user_location, get_user_id, get_current_month,
     fetch_external_data, fill_context_for_report, web_search_baidu,
 )
+from agent.tools.computer_use import action_requires_confirmation, computer_use
+from agent.tools.safety import summarize_content_for_log
 from agent.tools.os_tools import (
     get_system_info, list_directory, read_text_file, search_files, search_text, list_processes,
     write_text_file, create_directory, move_path, copy_path, delete_path, run_command, open_path,
@@ -34,14 +36,22 @@ CONFIRM_TOOLS = {
     "delete_path": "删除文件或目录",
     "run_command": "执行系统命令",
     "open_path": "打开文件或网址",
+    "computer_use": "控制桌面（截图/鼠标/键盘/剪贴板/应用）",
 }
 
 # 人工确认中间件：命中 CONFIRM_TOOLS 的工具调用会挂起，等待 UI 提交 approve/reject
+_HITL_CONFIG: dict[str, Any] = {
+    name: {"allowed_decisions": ["approve", "reject"]}
+    for name in CONFIRM_TOOLS
+}
+# computer_use 是一个多动作工具：只读动作（屏幕尺寸/找图/等待）直接放行，
+# 截图、剪贴板、应用列表和所有鼠标键盘动作仍然弹确认。
+_HITL_CONFIG["computer_use"]["when"] = lambda request: action_requires_confirmation(
+    (request.tool_call.get("args") or {}).get("action")
+)
+
 hitl_middleware = HumanInTheLoopMiddleware(
-    interrupt_on={
-        name: {"allowed_decisions": ["approve", "reject"]}
-        for name in CONFIRM_TOOLS
-    },
+    interrupt_on=_HITL_CONFIG,
     description_prefix="该操作会修改电脑状态，请确认参数后再决定是否执行",
 )
 
@@ -92,6 +102,8 @@ class ReactAgent:
                 # 电脑操作（需用户确认）
                 write_text_file, create_directory, move_path, copy_path,
                 delete_path, run_command, open_path,
+                # 桌面控制（OmniPilot 本地工具层；只读动作直接执行，其余需确认）
+                computer_use,
                 # 原有业务工具
                 get_weather, get_user_location, get_user_id, get_current_month,
                 fetch_external_data, fill_context_for_report, web_search_baidu,
@@ -181,9 +193,7 @@ class ReactAgent:
                                             }
                                             break
                                 if tool_call:
-                                    content = message.content
-                                    if not isinstance(content, str):
-                                        content = str(content)
+                                    content = summarize_content_for_log(message.content)
                                     yield AgentEvent(
                                         type="tool",
                                         tool_call={

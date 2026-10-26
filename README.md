@@ -1,6 +1,6 @@
 # 本地电脑助手 Agent
 
-基于 **LangChain 1.x `create_agent`（LangGraph）** 构建的工具调用型本地电脑助手：支持系统信息查询、文件读写与搜索、进程查看、命令执行（需确认），以及 Streamlit 对话界面。
+基于 **LangChain 1.x `create_agent`（LangGraph）** 构建的工具调用型本地电脑助手：支持系统信息查询、文件读写与搜索、进程查看、命令执行（需确认）、截屏与鼠标键盘/窗口控制（需确认），以及 Streamlit 对话界面。
 
 > 这是一份面向开发者的项目入口文档。5 分钟速览见 [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)；深入原理、配置项、扩展步骤与技术债见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -27,6 +27,8 @@
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构图（人看） |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明（普通人向 + 开发者参数） |
 | [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：能力矩阵、威胁模型、技术债与改进路线 |
+| [docs/AGENT_SECURITY_PLAYBOOK.md](docs/AGENT_SECURITY_PLAYBOOK.md) | Agent 安全实战经验：六层防御、十二条经验、HITL 分级、提示词注入、反模式、30/60/90 路线 |
+| [docs/OMNIPILOT_INTEGRATION_REPORT.md](docs/OMNIPILOT_INTEGRATION_REPORT.md) | OmniPilot 桌面控制接入报告（小白版）：做了什么、怎么接入、怎么用、不能怎么用、风险 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更日志（Keep a Changelog 格式，未发布改动在 `[Unreleased]`） |
 
@@ -49,8 +51,8 @@
 
 | 维度 | 说明 |
 | --- | --- |
-| 业务形态 | 本地电脑助手：查看系统与进程、浏览/搜索/读写文件、执行命令，并保留原有业务查询与报告能力 |
-| 技术形态 | 单进程 Streamlit 应用 + LangGraph Agent + 本地文件系统/psutil |
+| 业务形态 | 本地电脑助手：查看系统与进程、浏览/搜索/读写文件、执行命令、截屏并控制鼠标键盘/应用，并保留原有业务查询与报告能力 |
+| 技术形态 | 单进程 Streamlit 应用 + LangGraph Agent + 本地文件系统/psutil + OmniPilot 工具层 |
 | 适用范围 | 原型验证、LangChain Agent 学习、个人效率工具 |
 | 非目标 | 生产级多租户、鉴权、计费、高可用；当前均未实现 |
 
@@ -87,7 +89,7 @@
 | 天气 / 城市 / 用户 ID / 月份 | 🧪 模拟 | `agent/tools/agent_tools.py` 中返回随机或固定值 |
 | 会话记忆（短期 / 本地 JSON / PostgreSQL） | ✅ 已接入 | `app.py` 输入框左侧按钮切换；`memorys/memory_factory.py`、`file_checkpointer.py`、`postgres_checkpointer.py` |
 | 文件上传 UI | 🧪 预留 | `app_file_uploader.py` 当前为空壳 |
-| GUI 自动化（窗口/键鼠/截图） | ❌ 未实现 | — |
+| 桌面控制（截图 / 鼠标 / 键盘 / 剪贴板 / 应用） | ✅ 已接入（除只读动作外需确认） | `agent/tools/computer_use.py`（复用 OmniPilot 工具层） |
 | 鉴权 / 多用户 / 限流 | ❌ 未实现 | — |
 
 ---
@@ -103,6 +105,7 @@
 | 状态持久化 | langgraph-checkpoint-postgres / psycopg | 3.2.0 / 3.3.6 | PostgreSQL checkpointer 与连接池 |
 | 模型接入 | langchain / langchain-openai | 1.4.0 / 1.6.6 | `init_chat_model` 构造官方 `ChatOpenAI`，调用 DashScope OpenAI 兼容端点 |
 | 系统信息/进程 | psutil | 7.2.2 | CPU、内存、磁盘、进程枚举 |
+| 桌面控制 | omnipilot-agent[gui] | 0.1.0 | 复用其 screen/gui/clipboard/apps 工具层（pyautogui + Pillow） |
 | 命令执行 | subprocess（标准库） | — | 执行系统命令并捕获输出 |
 | UI | streamlit | 1.64.0 | 对话界面与流式渲染 |
 | 配置 | PyYAML / python-dotenv | 6.0.3 / 1.2.3 | YAML 配置、`.env` 加载 |
@@ -143,6 +146,7 @@ uv sync
 | `DB_URL_POSTGRES` | `memorys/postgres_checkpointer.py` | 否；在 Streamlit 选择 PostgreSQL 记忆方式时必需 |
 | `USE_POSTGRES_CHECKPOINTER` | `agent/react_agent.py` | 否；兼容配置，未显式传入 `memory_mode` 时默认使用 PostgreSQL |
 | `API_KEY_BAIDU` | `web_search_baidu` | 否；不配置时工具返回空字符串 |
+| `OMNIPILOT_HOME` | `agent/tools/computer_use.py` → OmniPilot 工具层 | 否；不设置时默认写到项目 `logs/omnipilot`（截图/会话目录） |
 | `BASE_URL_DEEPSEEK`、`API_KEY_DEEPSEEK`、`API_HOST_DASHSCOPE` | 当前代码未使用 | 否，预留 |
 
 ### 4.4 启动对话界面
@@ -169,6 +173,7 @@ uv run streamlit run app.py
 ```powershell
 uv run -m agent.react_agent      # 直接跑一次 Agent（会真实调用模型）
 uv run -m agent.tools.os_tools   # 验证电脑工具（不调用模型）
+uv run -m agent.tools.computer_use  # 只读桌面工具冒烟（屏幕尺寸/应用列表/等待）
 uv run -m utils.logger_handler   # 验证日志输出
 ```
 
@@ -193,6 +198,7 @@ project2/
 │   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流
 │   └── tools/
 │       ├── os_tools.py         # ✅ 13 个电脑信息与文件操作工具
+│       ├── computer_use.py     # ✅ 1 个桌面控制工具（18 个动作，复用 OmniPilot）
 │       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
 │       ├── agent_tools.py      # ✅ 7 个业务工具
 │       └── middleware.py       # ✅ 6 个中间件
@@ -230,11 +236,12 @@ project2/
 2. `agent/react_agent.py`：看 `create_agent` 的模型、工具、中间件三要素。
 3. `agent/tools/safety.py`：看工作区域、命令拦截、备份、回收区和小白解释。
 4. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
-5. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
-6. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏与模型降级。
-7. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
-8. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
-9. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
+5. `agent/tools/computer_use.py`：看单个工具如何按 `action` 分发到 OmniPilot 的 screen/gui/clipboard/apps，以及哪些动作直接执行、哪些需要确认。
+6. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
+7. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏与模型降级。
+8. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
+9. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
+10. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
 
 更完整的调用时序、配置表、扩展步骤和已知问题见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -248,6 +255,8 @@ project2/
 | 设置工作区域 | 输入框左侧「工作区域」按钮（立即生效），或 `config/agent.yml` 的 `workspace_roots`（重启生效） |
 | 设置敏感目录 | `config/agent.yml` 的 `sensitive_dirs` |
 | 调整备份/回收区/命令黑名单 | `agent/tools/safety.py` |
+| 调整桌面控制的直接执行/确认范围 | `agent/tools/computer_use.py` 的 `READ_ONLY_ACTIONS`；确认策略在 `agent/react_agent.py` 的 `_HITL_CONFIG` |
+| 调整桌面控制的应用/进程黑名单 | `agent/tools/computer_use.py` 的 `_BLOCKED_APPS` / `_PROTECTED_PROCESSES` |
 | 设置备用对话模型 | `config/model.yml` 的 `backup_chat_model_name` |
 | 调整命令超时/读取上限 | `agent/tools/os_tools.py` 顶部常量 |
 | 换外部 CSV 路径 | `config/agent.yml` |
@@ -267,11 +276,14 @@ project2/
 
 1. **默认是短期记忆**：进程内按会话 ID 保留上下文，刷新页面或重启即丢失；本地记忆/PostgreSQL 模式可跨进程恢复（PostgreSQL 需配置连接串）。
 2. **流式输出是“消息块级”而非 token 级**：只输出 `AIMessage` 文本，用户问题与工具中间结果不回显；UI 按事件块渲染。
-3. **PII 脱敏覆盖不完整**：`PIIMiddleware` 只处理模型输入/输出，日志与缓存中的敏感信息尚未脱敏。
+3. **PII 脱敏覆盖不完整**：`PIIMiddleware` 只处理模型输入/输出；日志中 `computer_use` 的 `type_text`/`clipboard_set` 内容已做定向脱敏，其他工具参数仍未脱敏。
 4. **外部数据示例为空**：`data/external/records.csv` 为空，`fetch_external_data` 会查不到记录；CSV 解析也未处理带逗号的引号字段。
 5. **命令检查不是沙箱**：`run_command` 使用黑名单和工作区路径检查，精心构造的命令仍可能绕过；确认卡片是最后一道防线。
-6. **工作区限制基于路径比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
-7. **界面保存会重写配置文件**：通过「工作区域」按钮保存时使用 `yaml.safe_dump`，`config/agent.yml` 中的注释会丢失。
+6. **桌面控制不是 UI 自动化框架**：没有控件树/OCR，主要靠截图 + 坐标或模板匹配；多显示器、DPI 缩放或窗口移动可能导致坐标偏移。
+7. **截图会进入会话记忆**：截图以 base64 形式写入短期/JSON/PostgreSQL 记忆，连续截图会让会话体积变大，当前没有自动清理。
+8. **桌面控制禁止启动终端/脚本宿主**：`app_open` 拒绝 `cmd`、PowerShell、WSL、注册表、磁盘工具等，避免绕过 `run_command`；需要执行命令时走 `run_command`。
+9. **工作区限制基于路径比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
+10. **界面保存会重写配置文件**：通过「工作区域」按钮保存时使用 `yaml.safe_dump`，`config/agent.yml` 中的注释会丢失。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 
@@ -286,6 +298,8 @@ project2/
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构总览图 |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明：工作区域、确认卡片、回收区、审计日志、参数表 |
 | [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：会做/能做/不会做/不能做、措施实现、STRIDE/OWASP 映射、技术债、改进路线 |
+| [docs/AGENT_SECURITY_PLAYBOOK.md](docs/AGENT_SECURITY_PLAYBOOK.md) | Agent 安全实战经验：六层防御、十二条经验、HITL 分级、提示词注入、反模式、30/60/90 路线 |
+| [docs/OMNIPILOT_INTEGRATION_REPORT.md](docs/OMNIPILOT_INTEGRATION_REPORT.md) | OmniPilot 桌面控制接入报告（小白版）：做了什么、实现方法、怎么用、不能怎么用、风险 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更：加了什么 / 改了什么 / 修了什么 |
 
@@ -294,7 +308,9 @@ project2/
 ## 10. 安全与协作约定
 
 - `.env` 已加入 `.gitignore`；不要把 API Key、数据库连接串写进代码、提示词、日志或文档。
-- `logs/` 会记录用户输入与工具参数，接入真实业务后需考虑脱敏与保留周期。
+- `logs/` 会记录用户输入与工具参数，接入真实业务后需考虑脱敏与保留周期；目前仅图片 base64、桌面文字输入与剪贴板内容做了定向脱敏。
+- `computer_use` 会把截图写到 `logs/omnipilot/screenshots/`，并把图片作为工具结果发给模型；截图可能包含密码、聊天记录等隐私内容，确认前请看清楚。
+- 不要用 `computer_use` 输入密码/验证码，也不要在无人值守时自动代点确认；终端与脚本宿主已被 `app_open` 拒绝，需要命令时走 `run_command`。
 - 新增入口脚本建议从项目根目录用 `uv run -m <module>` 运行；直接运行 `.py` 依赖 `env_patch` 注入的项目根路径。
 - 编码助手请先读 `docs/PROJECT_OVERVIEW.md`，并按 `AGENTS.md` 的阅读约定执行，避免整份加载长文档。
 - 高危工具的参数会显示在确认卡片上；不要把密钥写入命令参数。

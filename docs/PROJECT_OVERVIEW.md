@@ -2,7 +2,7 @@
 
 > 用途：给人和 AI 的快速上下文。命令与环境见 [README](../README.md)；深入设计见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 >
-> 代码基线：`2026-10-25` 工作区快照。
+> 代码基线：`2026-10-26` 工作区快照。
 >
 > 配套图：[architecture.svg](architecture.svg)（分层架构）；AI 阅读约定见 [AGENTS.md](../AGENTS.md)。
 
@@ -10,7 +10,7 @@
 
 ## 1. 一句话
 
-基于 **LangChain 1.4 `create_agent`（LangGraph）** 的本地电脑助手原型：Streamlit UI + 工具调用 + 文件系统/进程/命令操作 + 高危操作人工确认，支持短期/本地 JSON/PostgreSQL 三种会话记忆。
+基于 **LangChain 1.4 `create_agent`（LangGraph）** 的本地电脑助手原型：Streamlit UI + 工具调用 + 文件系统/进程/命令操作 + 截屏与鼠标键盘/窗口控制 + 高危操作人工确认，支持短期/本地 JSON/PostgreSQL 三种会话记忆。
 
 ## 2. 技术栈
 
@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | 表现层 | `app.py` | 收集输入、展示流式输出、渲染高危操作确认卡片 |
 | 编排层 | `ReactAgent` + 8 个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，拦截高危操作 |
-| 工具层 | `os_tools`（13 个）+ `agent_tools`（7 个） | 本机信息、文件读写/搜索、进程、命令、业务查询 |
+| 工具层 | `os_tools`（13 个）+ `agent_tools`（7 个）+ `computer_use`（1 个，18 动作） | 本机信息、文件读写/搜索、进程、命令、业务查询、桌面控制 |
 | 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 |
 | 模型/存储 | `ChatOpenAI`、记忆后端、本地文件系统 | 推理、上下文持久化、文件读写 |
 | 横切 | `config/`、`prompts/`、`utils/`、`logs/` | 配置、提示词、路径、日志、环境补丁 |
@@ -40,7 +40,7 @@
 1. `app.py` 接收输入，调用 `ReactAgent.execute_stream(query, thread_id)`。
 2. `create_agent` 构建 LangGraph，传入 `context={"report": False}`、`config={"thread_id": ...}`。
 3. 中间件在模型调用外层做模型降级与 PII 脱敏，并在调用前记录日志、选择系统提示词。
-4. 模型返回 `tool_calls`：只读工具直接执行；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起。
+4. 模型返回 `tool_calls`：只读工具直接执行；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；`computer_use` 由 `when` 谓词按 `action` 细分（3 个只读动作放行，其余确认）。
 5. 挂起时 `ReactAgent` 产出 `AgentEvent(type="interrupt")`，`app.py` 渲染确认卡片；用户批准后用 `Command(resume=...)` 继续。
 6. 循环直到模型返回最终 `AIMessage`；`app.py` 用 `_render_events` 渲染文本并 `st.rerun()`。
 
@@ -54,6 +54,8 @@
 
 **修改类工具（需确认）**：`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`，统一在 `CONFIRM_TOOLS` 注册，由 `HumanInTheLoopMiddleware` 拦截。确认卡片用大白话说明“做什么、目标、风险、影响范围”。
 
+**桌面控制（computer_use，单工具多动作）**：复用 OmniPilot 的本地工具层（screen / gui / clipboard / apps），不引入它自己的 Agent 循环。`screen_size`、`locate_image`、`wait` 直接执行；`screenshot`、剪贴板读写、应用列表和所有鼠标键盘动作都需确认。截图以 LangChain content block 回传，`qwen3.5-flash` 可以直接看图；确认卡片会说明坐标、目标窗口和隐私风险。`app_open` 拒绝终端/脚本宿主/注册表/磁盘工具，`app_close` 拒绝系统关键进程。
+
 **自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；单轮最多 20 次工具调用。
 
 **操作留痕**：聊天页「本次操作记录」展示每一步的人话解释；`logs/audit_YYYYMMDD.jsonl` 记录结构化审计日志。
@@ -63,7 +65,7 @@
 ## 6. 目录速查
 
 ```text
-agent/        Agent 组装、13 个电脑工具 + 7 个业务工具、安全策略与中间件
+agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、安全策略与中间件
 model/        Chat 模型工厂
 utils/        配置、路径、日志、提示词加载
 config/       model / agent / prompts
@@ -82,9 +84,11 @@ env_patch/    .pth + sitecustomize.py
 - **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；目前只支持全部确认/全部拒绝。
 - **删除默认进回收区**：`.agent_trash` 可手动恢复；`permanent=True` 才永久删除。
 - **命令检查不是沙箱**：黑名单 + 路径提取是尽力而为，确认卡片是最后防线。
-- **无 GUI 自动化**：只有文件系统、进程与命令行能力，不能点击按钮、切换窗口或截图。
+- **桌面控制不是 UI 自动化框架**：没有控件树/OCR，主要靠截图 + 坐标或模板匹配；多显示器/DPI 缩放可能让坐标偏移。
+- **截图进入会话记忆**：截图以 base64 写入短期/JSON/PostgreSQL 记忆，连续截图会让会话体积变大，当前无自动清理。
+- **桌面控制的应用边界**：`app_open` 不启动终端/脚本宿主/注册表/磁盘工具（避免绕过 `run_command`）；`app_close` 不关闭系统关键进程。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
-- **未实现**：鉴权、限流、多租户、自动化测试、文件上传 UI；PII 仅覆盖模型输入/输出，日志未脱敏。
+- **未实现**：鉴权、限流、多租户、自动化测试、文件上传 UI；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏。
 
 ## 8. 按问题找位置
 
@@ -95,7 +99,10 @@ env_patch/    .pth + sitecustomize.py
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
 | 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
+| 桌面控制（截图/键鼠/应用）怎么用？ | [OS_TOOLS.md](OS_TOOLS.md) 第 5.8–5.12 节 + [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统与安全模型) |
 | 安全能力、威胁模型、技术债与改进路线？ | [SECURITY_REPORT.md](SECURITY_REPORT.md) |
+| 怎么把 Agent 做得更安全可控？ | [AGENT_SECURITY_PLAYBOOK.md](AGENT_SECURITY_PLAYBOOK.md) |
+| OmniPilot 桌面控制怎么接入、怎么用、有什么风险？ | [OMNIPILOT_INTEGRATION_REPORT.md](OMNIPILOT_INTEGRATION_REPORT.md) |
 | 报告场景怎么切换？ | [ARCHITECTURE 第 8 节](ARCHITECTURE.md#8-报告场景与动态提示词) |
 | 配置在哪改？ | [ARCHITECTURE 第 9 节](ARCHITECTURE.md#9-配置体系) + [README 配置速查](../README.md#7-配置入口速查) |
 | 想加工具/上传/记忆？ | [ARCHITECTURE 第 13 节](ARCHITECTURE.md#13-扩展指南) |

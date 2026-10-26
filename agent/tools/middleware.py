@@ -7,6 +7,11 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from utils.logger_handler import logger
 from utils.audit_logger import log_tool_call
+from agent.tools.safety import (
+    sanitize_tool_args,
+    sanitize_tool_result,
+    summarize_content_for_log,
+)
 from langgraph.runtime import Runtime
 
 
@@ -29,7 +34,8 @@ def monitor_tool(
         session_id = ""
 
     logger.info(f"[tool monitor]工具{tool_name}开始执行")
-    logger.info(f"[tool monitor]工具{tool_name}传入参数:{tool_args}")
+    safe_args = sanitize_tool_args(tool_name, tool_args)
+    logger.info(f"[tool monitor]工具{tool_name}传入参数:{safe_args}")
 
     try:
         result = handler(request)
@@ -40,10 +46,16 @@ def monitor_tool(
 
         content = getattr(result, "content", result)
         status = getattr(result, "status", "success")
-        log_tool_call(session_id, tool_name, tool_args, str(content), str(status))
+        log_tool_call(
+            session_id,
+            tool_name,
+            safe_args,
+            sanitize_tool_result(tool_name, tool_args, content),
+            str(status),
+        )
         return result
     except Exception as e:
-        log_tool_call(session_id, tool_name, tool_args, str(e), "error")
+        log_tool_call(session_id, tool_name, safe_args, str(e), "error")
         logger.error(f"工具{tool_name}调用失败，原因：{str(e)}")
         raise e
 
@@ -55,7 +67,12 @@ def log_before_model(
 ):          # 在模型执行前输出日志
     logger.info(f"[log_before_model]即将调用模型，带有{len(state['messages'])}条消息。")
 
-    logger.debug(f"[log_before_model]{type(state['messages'][-1]).__name__} | {state['messages'][-1].content.strip()}")
+    last_message = state["messages"][-1]
+    # 工具结果可能是字符串，也可能是带图片的 content block 列表；统一脱敏后再记录
+    logger.debug(
+        f"[log_before_model]{type(last_message).__name__} | "
+        f"{summarize_content_for_log(getattr(last_message, 'content', ''), limit=300)}"
+    )
 
     return None
 

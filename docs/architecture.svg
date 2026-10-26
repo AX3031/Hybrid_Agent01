@@ -17,7 +17,7 @@
 
   <g font-family="Microsoft YaHei, PingFang SC, Segoe UI, sans-serif">
     <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">本地电脑助手 Agent · 系统架构总览</text>
-    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 文件系统 / psutil · Streamlit UI</text>
+    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 文件系统 / psutil / OmniPilot 工具层 · Streamlit UI</text>
 
     <!-- Presentation layer -->
     <rect x="40" y="104" width="1120" height="88" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
@@ -57,8 +57,9 @@
 
     <!-- Tool layer -->
     <rect x="40" y="352" width="1120" height="194" rx="14" fill="#ecfdf5" stroke="#a7f3d0"/>
-    <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（20 个 @tool 注册，全部受工作区域限制）</text>
-    <text x="64" y="530" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认）；删除默认进 .agent_trash</text>
+    <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（21 个 @tool；文件类受工作区限制，桌面类受确认/黑名单约束）</text>
+    <text x="64" y="521" font-size="10.5" fill="#047857">桌面控制：computer_use（1 个工具 / 18 动作，复用 OmniPilot 工具层；截图、鼠标键盘、剪贴板、应用启停）</text>
+    <text x="64" y="537" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认）；删除默认进 .agent_trash；桌面只读动作直接执行，其余需确认</text>
 
     <rect x="64" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
     <text x="76" y="408" font-size="13.5" font-weight="600" fill="#0f172a">get_system_info</text>
@@ -131,7 +132,7 @@
     <path d="M560 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M800 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
-    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 28 条命令黑名单 · 20 次/轮 · 审计 logs/audit_*.jsonl</text>
+    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 28 条命令黑名单 · 20 次/轮 · 桌面应用/进程黑名单 · 审计 logs/audit_*.jsonl</text>
     <text x="64" y="870" font-size="10.5" fill="#64748b">会话记忆在输入框左侧按钮切换：短期记忆（默认）/ 本地 JSON / PostgreSQL；侧边栏管理会话 ID。</text>
 
     <!-- Prompt switch (dashed) -->
@@ -183,7 +184,7 @@
     <line x1="220" y1="930" x2="268" y2="930" stroke="#db2777" stroke-width="1.6" stroke-dasharray="6 5"/>
     <text x="278" y="935" font-size="12" fill="#475569">配置 / 提示词 / 数据依赖</text>
 
-    <text x="48" y="992" font-size="11" fill="#94a3b8">版本快照：Python 3.14 · langchain 1.4.0 · langgraph 1.2.11 · psutil 7.2.2 · streamlit 1.64.0</text>
-    <text x="1552" y="992" font-size="11" fill="#94a3b8" text-anchor="end">架构图 · 代码基线 2026-10-25</text>
+    <text x="48" y="992" font-size="11" fill="#94a3b8">版本快照：Python 3.14 · langchain 1.4.0 · langgraph 1.2.11 · psutil 7.2.2 · streamlit 1.64.0 · omnipilot-agent 0.1.0</text>
+    <text x="1552" y="992" font-size="11" fill="#94a3b8" text-anchor="end">架构图 · 代码基线 2026-10-26</text>
   </g>
 </svg>
