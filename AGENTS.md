@@ -17,7 +17,7 @@
 ## 不要做的事
 
 - 不要为了建立认知去整份读 `docs/*.svg`。图是给人看的，文字模块表更适合 AI。但**核对/更新图里的文字时**，用 grep 只取 `<text>` 节点定位，改完用 XML 解析校验一次。
-- 不要假设 `utils/runtime.py` 存在；当前运行时初始化由 `env_patch/` 的 `.pth + sitecustomize.py` 完成。
+- 不要假设 `utils/runtime.py` 存在；当前运行时初始化由 `env_patch/` 的 `.pth + sitecustomize.py` 完成，它们需要执行 `uv run python scripts/apply_env_patch.py` 装进 `.venv`（`uv sync` 重建后会丢失）。
 - 不要把 `ARCHITECTURE.md` 里的“示例/预留”当成已接入主链路；状态标记以 ✅ / 🧪 / ⚙️ / ⚠️ 为准。
 
 ## 修改后的文档动作

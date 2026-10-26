@@ -133,7 +133,40 @@ uv sync
 
 项目已在 `pyproject.toml` 中配置清华 PyPI 镜像；虚拟环境位于 `.venv/`。
 
-> 如果 `uv sync` 重建了 `.venv`，需要把 `env_patch/project2_root.pth` 与 `env_patch/sitecustomize.py` 复制到 `.venv/Lib/site-packages/`（Windows）。否则在 IDE 中直接运行 `.py` 可能报 `ModuleNotFoundError`，Windows 终端也可能出现中文/emoji 编码错误。使用 `uv run -m ...` 从项目根运行可规避导入问题。
+> `uv sync` 每次重建 `.venv` 都会清空 `site-packages`，虚拟环境补丁因此丢失。重建后执行一次即可自动补回（幂等，可反复运行）：
+>
+> ```powershell
+> uv run python scripts/apply_env_patch.py
+> ```
+>
+> 脚本把 `env_patch/` 下的 `.pth` 与 `sitecustomize.py` 装进当前解释器的 `site-packages`：目标路径由解释器自报（Windows/Linux/macOS 通用，不再写死 `Lib`），`.pth` 里的相对路径会改写成绝对路径。补丁缺失时的症状：IDE 里直接运行 `.py` 报 `ModuleNotFoundError`，Windows 终端出现中文/emoji 编码错误。检查是否已生效用 `uv run python scripts/apply_env_patch.py --check`（未生效退出码 1）。用 `uv run -m ...` 从项目根运行可规避导入问题。
+
+### 4.2.1 Windows 新建终端报「禁止运行脚本」
+
+现象：新建终端出现 `无法加载文件 ....venv\Scripts\Activate.ps1，因为在此系统上禁止运行脚本`（`UnauthorizedAccess`）。
+
+原因链：`.vscode/settings.json` 把解释器钉在 `.venv`，Python 扩展因此**每次新建终端都自动执行** `Activate.ps1`；而 Windows 家用版 PowerShell 的执行策略默认是 `Restricted`（拦住所有 `.ps1` 脚本文件）。**真正的代价不是那行红字，而是虚拟环境没有激活**：`python`/`pip` 指向全局解释器（`pip install` 会装错地方），`env_patch` 的路径与编码补丁也一并失效。
+
+本项目已在 `.vscode/settings.json` 里给集成终端的 PowerShell 配置加上 `-ExecutionPolicy Bypass`：只作用于从本工作区打开的**那个终端进程**，不写注册表、不改用户/机器策略，窗口关闭即失效。**这条配置会随仓库对所有协作者生效，属于进程级放宽，请知悉**（取舍与边界见 [ARCHITECTURE 9.9](docs/ARCHITECTURE.md#99-ide-层配置与集成终端启动参数)）。
+
+仍报错时按顺序排查：
+
+1. **重开终端**：执行策略在 PowerShell 进程启动时读取，配置前已打开的窗口不会变化。
+2. 确认终端确实由本工作区打开（换个文件夹打开项目则不套用该配置）。
+3. 想让 IDE 之外的 PowerShell 也正常，本机执行一次（只影响当前 Windows 账户，保留「下载脚本需签名」的底线）：
+
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+   ```
+
+   查看用 `Get-ExecutionPolicy`（最终生效值）与 `Get-ExecutionPolicy -List`（各作用域）；撤回用 `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined`。
+4. 不想改任何策略：用 `uv run ...`（uv 自己定位 `.venv`，不需要激活），或把默认终端换成 cmd / Git Bash（它们走 `activate.bat` / `activate`，不受执行策略约束）。
+
+自检（唯一可靠判据，**不要只看 IDE 右下角的解释器标签**，它不代表终端已激活）：
+
+```powershell
+python -c "import sys; print(sys.executable)"   # 应输出 <项目根>\.venv\Scripts\python.exe
+```
 
 ### 4.3 准备 `.env`
 
@@ -175,9 +208,10 @@ uv run -m agent.react_agent      # 直接跑一次 Agent（会真实调用模型
 uv run -m agent.tools.os_tools   # 验证电脑工具（不调用模型）
 uv run -m agent.tools.computer_use  # 只读桌面工具冒烟（屏幕尺寸/应用列表/等待）
 uv run -m utils.logger_handler   # 验证日志输出
+uv run python scripts/apply_env_patch.py --check  # 验证虚拟环境补丁是否已生效
 ```
 
-> `agent.react_agent` 会触发真实模型调用，运行前确认 `.env` 已配置；其余两个不调用模型。
+> `agent.react_agent` 会触发真实模型调用，运行前确认 `.env` 已配置；其余三条都不调用模型。
 
 ---
 
@@ -194,6 +228,7 @@ project2/
 ├── test1.py                    # 🧪 临时脚本
 ├── pyproject.toml / uv.lock    # 依赖与锁文件
 ├── .env                        # 本地密钥（git 忽略）
+├── .vscode/settings.json       # ⚙️ IDE 配置：解释器 + 集成终端 Bypass（git 跟踪，见 4.2.1）
 ├── agent/
 │   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流
 │   └── tools/
@@ -221,6 +256,8 @@ project2/
 ├── data/                       # external/ 下为业务 CSV
 ├── logs/                       # 按日日志
 ├── env_patch/                  # ⚙️ 虚拟环境补丁（.pth + sitecustomize.py）
+├── scripts/
+│   └── apply_env_patch.py      # ⚙️ 把 env_patch 装进 .venv（每次 uv sync 后执行）
 └── docs/                       # 速览、架构文档、功能说明与 SVG 图
 ```
 
@@ -267,6 +304,8 @@ project2/
 | 管理会话 ID / 新建会话 / 清空记忆 | Streamlit 左侧栏「会话管理」（后续可在此列出会话记录） |
 | PostgreSQL 连接 | `.env` 的 `DB_URL_POSTGRES`；`USE_POSTGRES_CHECKPOINTER=true` 仅作为无 UI 场景的默认记忆方式 |
 | 百度联网搜索 | `.env` 的 `API_KEY_BAIDU` |
+| 补装/校验虚拟环境补丁 | `uv run python scripts/apply_env_patch.py`（加 `--check` 只校验），源文件在 `env_patch/` |
+| 改 IDE 终端行为（含 Windows 执行策略放宽） | `.vscode/settings.json`（随仓库对所有协作者生效，见 4.2.1） |
 
 ---
 
@@ -311,7 +350,8 @@ project2/
 - `logs/` 会记录用户输入与工具参数，接入真实业务后需考虑脱敏与保留周期；目前仅图片 base64、桌面文字输入与剪贴板内容做了定向脱敏。
 - `computer_use` 会把截图写到 `logs/omnipilot/screenshots/`，并把图片作为工具结果发给模型；截图可能包含密码、聊天记录等隐私内容，确认前请看清楚。
 - 不要用 `computer_use` 输入密码/验证码，也不要在无人值守时自动代点确认；终端与脚本宿主已被 `app_open` 拒绝，需要命令时走 `run_command`。
-- 新增入口脚本建议从项目根目录用 `uv run -m <module>` 运行；直接运行 `.py` 依赖 `env_patch` 注入的项目根路径。
+- 新增入口脚本建议从项目根目录用 `uv run -m <module>` 运行；直接运行 `.py` 依赖 `env_patch` 注入的项目根路径（`uv sync` 重建环境后先执行 `uv run python scripts/apply_env_patch.py` 补回）。
 - 编码助手请先读 `docs/PROJECT_OVERVIEW.md`，并按 `AGENTS.md` 的阅读约定执行，避免整份加载长文档。
 - 高危工具的参数会显示在确认卡片上；不要把密钥写入命令参数。
+- `.vscode/settings.json` 会随仓库改变协作者的 IDE 行为（当前包含集成终端的 `-ExecutionPolicy Bypass`）；改它要在评审里说明缘由，也不要往里面放机器级策略或个人偏好。
 - 提交前建议检查：`git status` 中是否误带 `logs/`、`.env`、`__pycache__/`。

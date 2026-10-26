@@ -170,7 +170,7 @@ flowchart LR
 | L3 工具层 | 21 个 `@tool` 函数（电脑操作 13 + 业务 7 + 桌面控制 1） | 把本机文件、进程、命令与桌面能力封装成模型可调用的工具 | 入参/返回需可序列化 |
 | L4 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 | 与工具实现解耦 |
 | L5 模型/存储层 | `ChatOpenAI`、PostgreSQL（可选）、本地文件系统 | 模型推理、会话持久化、文件读写 | 系统目录受保护，写操作需确认 |
-| L6 横切层 | `config/`、`prompts/`、`utils/`、`logs/`、`env_patch/` | 配置、路径、日志、编码补丁 | 启动时加载，运行时只读为主 |
+| L6 横切层 | `config/`、`prompts/`、`utils/`、`logs/`、`env_patch/`、`scripts/` | 配置、路径、日志、编码补丁、环境安装脚本 | 启动时加载，运行时只读为主 |
 
 ### 4.2 关键设计决策
 
@@ -183,6 +183,7 @@ flowchart LR
 7. **绝对路径统一入口**：`utils/path_tool.get_abs_path()` 基于文件位置推导项目根，避免依赖当前工作目录。
 8. **安全兜底集中在 `safety.py`**：工作区校验、敏感目录、命令黑名单、可执行后缀、覆盖备份、回收区都是一处实现、所有工具复用。
 9. **OpenAI 兼容协议做模型适配层**：`ChatOpenAI` + `BASE_URL_DASHSCOPE` 可以较低成本切换供应商。
+10. **Windows 集成终端用启动参数放行激活脚本，而不是要求每人改系统策略**：`.vscode/settings.json` 给 PowerShell profile 加 `-ExecutionPolicy Bypass`，只在从本工作区打开的终端进程内生效、不写注册表；相比让每个协作者执行 `Set-ExecutionPolicy`（持久修改用户策略）影响面更小、且随仓库可复现。代价是该窗口内所有 `.ps1`（含未签名的下载脚本）不再拦截，属于**仓库携带的进程级放宽**，必须在 README 明示以便协作者知情。
 
 ### 4.3 主链路与非主链路
 
@@ -212,6 +213,7 @@ project2/
 ├── pyproject.toml               # 依赖声明
 ├── uv.lock                      # 锁定版本
 ├── .env                         # 本地密钥（git 忽略）
+├── .vscode/settings.json        # ⚙️ IDE 配置：解释器 + 集成终端 Bypass（git 跟踪）
 ├── agent/
 │   ├── react_agent.py           # ✅ Agent 组装 + 流式/确认事件
 │   └── tools/
@@ -239,6 +241,8 @@ project2/
 ├── data/                        # external/records.csv
 ├── logs/                        # 按日日志
 ├── env_patch/                   # ⚙️ .pth + sitecustomize.py
+├── scripts/
+│   └── apply_env_patch.py       # ⚙️ 把 env_patch 装进 .venv（uv sync 后执行）
 └── docs/                        # 速览、架构文档与 SVG
 ```
 
@@ -259,6 +263,7 @@ project2/
 | `utils/path_tool.py` | `get_project_root`、`get_abs_path` | 基于 `utils/` 位置推导项目根 | 被所有路径读取使用 |
 | `utils/logger_handler.py` | `get_logger`、`logger` | 控制台 INFO + 按日文件 DEBUG；幂等 Handler | 被工具/中间件使用 |
 | `utils/audit_logger.py` | `log_tool_call` | 把每次工具调用写入 `logs/audit_YYYYMMDD.jsonl` | 被 `middleware.monitor_tool` 使用 |
+| `scripts/apply_env_patch.py` | `main`、`site_packages`、`render_pth` | 把 `env_patch/` 的 `.pth` 与 `sitecustomize.py` 幂等写入当前解释器的 `site-packages`（路径自报、`.pth` 相对路径改绝对）；`--check` 只校验不写 | 上游：开发者命令行为 `uv run python scripts/apply_env_patch.py`；下游：`.venv` 的 `site-packages`；不参与运行链路 |
 | `memorys/memory_factory.py` | `MEMORY_MODE_LABELS`、`DEFAULT_MEMORY_MODE`、`create_checkpointer` | 记忆方式枚举与 checkpointer 工厂；PostgreSQL 分支延迟导入 | 被 `agent/react_agent.py` 使用 |
 | `memorys/file_checkpointer.py` | `FileCheckpointSaver`、`get_file_checkpointer` | 继承 `InMemorySaver`，把 storage/writes/blobs 原子写入 JSON；进程内单例 | 被 `memory_factory.py` 使用 |
 | `memorys/postgres_checkpointer.py` | `get_checkpointer`、`close_pool` | PostgreSQL checkpointer（连接池 + 幂等建表）；选择 PostgreSQL 模式时使用 | 被 `memory_factory.py` 使用 |
@@ -702,7 +707,7 @@ import agent.tools.middleware
 get_abs_path("config/model.yml")  # -> <project_root>/config/model.yml
 ```
 
-项目根由 `utils/path_tool.py` 所在位置推导，因此不依赖启动时的工作目录。直接运行 `.py` 时，项目根导入依赖 `env_patch` 注入；推荐统一使用 `uv run -m <module>`。
+项目根由 `utils/path_tool.py` 所在位置推导，因此不依赖启动时的工作目录。直接运行 `.py` 时，项目根导入依赖 `env_patch` 注入（由 `scripts/apply_env_patch.py` 安装到 `.venv`）；推荐统一使用 `uv run -m <module>`。
 
 ### 9.7 配置变更后的生效方式
 
@@ -713,12 +718,32 @@ get_abs_path("config/model.yml")  # -> <project_root>/config/model.yml
 | `prompts/main_prompt.txt`、`prompts/report_prompt.txt` | 否（每次模型调用前重读） |
 | `model/factory.py` 中的模型参数 | 是 |
 | `OMNIPILOT_HOME` 环境变量 | 是（`computer_use` 在 import 时读取，且只在变量未设置时写入默认值） |
+| `.vscode/settings.json`（终端 profile） | 已开窗口不变，需**关闭并重开终端**（执行策略在 PowerShell 进程启动时读取） |
 
 ### 9.8 配置安全
 
 - `config_handler` 使用 `yaml.FullLoader`，比 `yaml.load` 安全，但仍建议改成 `yaml.safe_load`。
 - 配置中不要放密钥；密钥只放 `.env`。
 - `.env` 已被 `.gitignore` 忽略；提交前用 `git status` 确认。
+
+### 9.9 IDE 层配置与集成终端启动参数
+
+`.vscode/settings.json` 已被 Git 跟踪，会随仓库对所有协作者生效，改它等于替别人的 IDE 做决定，应走评审。
+
+| 配置 | 作用 | 生效范围 |
+| --- | --- | --- |
+| `python.defaultInterpreterPath` | 把解释器钉在 `.venv\Scripts\python.exe`；语法检测/调试与终端激活都据此定位环境 | 仅本工作区 |
+| `python.terminal.activateEnvironment` | 新建终端时由 Python 扩展自动执行 `.venv\Scripts\Activate.ps1`（cmd 走 `activate.bat`、Git Bash 走 `activate`） | 仅本工作区的集成终端 |
+| `terminal.integrated.profiles.windows.PowerShell.args` | 覆盖内置 PowerShell 配置，加 `-ExecutionPolicy Bypass` | **仅该终端进程**，窗口关闭即失效 |
+| `terminal.integrated.defaultProfile.windows` | 固定默认 profile 为 `PowerShell`，确保放宽参数一定被带上 | 仅本工作区 |
+
+为什么需要第三行：Windows 家用版 PowerShell 的执行策略默认是 `Restricted`（所有作用域均为 `Undefined` 时的兜底值；不带参数执行 `Get-ExecutionPolicy` 读到的就是最终生效值），会拦住第二行自动执行的 `Activate.ps1`。症状是新建终端报 `UnauthorizedAccess`，且虚拟环境**未激活**：`python`/`pip` 回到全局解释器，`env_patch` 的路径与编码补丁也一并失效。
+
+边界与风险：
+
+- `-ExecutionPolicy` 是**进程作用域**，优先级高于 `CurrentUser`/`LocalMachine`，但不写注册表；`Get-ExecutionPolicy -List` 不会留下痕迹，IDE 之外的 PowerShell 窗口不受影响。
+- 组策略下发的 `UserPolicy`/`MachinePolicy` 优先级更高，本参数无法覆盖；在受管控的域环境中这条放宽可能不生效。
+- `Bypass` 会放行该窗口内所有 `.ps1`（含未签名的下载脚本），不再有警告。它是开发终端的便利配置，**不构成任何安全防线**：本项目的安全边界在 `safety.py`、HITL 确认与审计日志，不在执行策略。
 
 ---
 
@@ -733,7 +758,8 @@ get_abs_path("config/model.yml")  # -> <project_root>/config/model.yml
 | `logs/omnipilot/screenshots/` | `computer_use` 的截图原图 | OmniPilot `Screenshot` 工具 | 模型（base64 回传）/人 | 不建议（可能含屏幕隐私内容） |
 | `memorys/chat_history/` | 文件型会话历史 | `FileCheckpointSaver` | 同左 | 不建议（含用户内容） |
 | `config/`、`prompts/` | 配置与提示词 | 人工 | 全项目 | 建议 |
-| `env_patch/` | 环境补丁源文件 | 人工 | 虚拟环境安装 | 建议 |
+| `env_patch/` | 环境补丁源文件 | 人工维护，`scripts/apply_env_patch.py` 自动安装到 `.venv` | 虚拟环境安装 | 建议 |
+| `.vscode/` | IDE 工作区配置（解释器、集成终端启动参数） | 人工 | VS Code / Qoder | 建议（会改变协作者的 IDE 行为，应走评审） |
 
 ### 10.2 当前 Git 跟踪情况
 
@@ -875,7 +901,7 @@ memorys/chat_history/
 | TD-20 | ✅ 已修复 | 逐字符 `time.sleep(0.01)` | 已改为按事件块渲染，不再逐字符 sleep | 长回答不再阻塞请求线程 | — |
 | TD-21 | P3 | 空壳/模板文件 | `app_file_uploader.py`、`main.py`、`test1.py` | 误导新成员 | 删除或补实现 |
 | TD-22 | P3 | 提示词变量转义风险 | 当前仅用 `load_system_prompts` 直接读文本，不再使用 `PromptTemplate` | 低 | 如后续引入模板渲染，注意转义 |
-| TD-23 | P3 | Windows 编码补丁只在 `.venv` | `env_patch/sitecustomize.py` 需手动复制 | 重建环境后 emoji/中文可能报错 | 提供安装脚本或 `utils/runtime.py` |
+| TD-23 | ✅ 已修复 | Windows 编码补丁只在 `.venv` | 新增 `scripts/apply_env_patch.py`，幂等把 `env_patch/` 的 `.pth` 与 `sitecustomize.py` 写入当前解释器 `site-packages`（`--check` 可校验）；`uv sync` 后仍需要执行一次 | 重建环境后 emoji/中文不再依赖手动复制 | 可进一步挂到 `uv sync` 后置流程或 `utils/runtime.py` |
 | TD-24 | P3 | `utils/runtime.py` 约定未落地 | 仓库中无该文件；实际靠 `env_patch` | 规范与实现不一致 | 补齐 `runtime.setup_runtime()` 并在入口调用 |
 | TD-25 | P3 | 工具返回模拟数据 | `get_weather`、`get_user_location`、`get_user_id`、`get_current_month` | 演示可以，真实业务不可用 | 替换为真实 API/数据库，加超时与降级 |
 | TD-26 | P3 | 项目命名不一致 | `pyproject.toml` 的 `name = "project1"`、目录 `project2`、`.venv` prompt 为 `project1` | 新成员困惑，包名/镜像名易错 | 统一项目名，更新 `pyproject` 与文档 |
@@ -1154,7 +1180,9 @@ uv run streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 | 现象 | 可能原因 | 处理 |
 | --- | --- | --- |
 | `ModuleNotFoundError: agent` | 不在项目根目录运行 / 未用 `-m` | `cd` 到项目根，`uv run -m ...` |
-| 中文/emoji `UnicodeEncodeError` | Windows 终端编码 | 确认 `env_patch/sitecustomize.py` 已复制到 `.venv/Lib/site-packages` |
+| 中文/emoji `UnicodeEncodeError` | Windows 终端编码；`uv sync` 重建 `.venv` 后补丁丢失 | `uv run python scripts/apply_env_patch.py`（可先用 `--check` 确认） |
+| `ModuleNotFoundError: utils`/`agent` 且已在项目根 | 同上，`site-packages` 里没有项目根 `.pth` | `uv run python scripts/apply_env_patch.py` |
+| 新建终端报「禁止运行脚本」/ `UnauthorizedAccess` | Windows PowerShell 执行策略默认 `Restricted`，拦住被自动执行的 `Activate.ps1`；此时虚拟环境未激活 | 确认终端是从本工作区打开（`.vscode/settings.json` 已带 `-ExecutionPolicy Bypass`）并**重开终端**；或本机执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`；或改用 `uv run` |
 | 模型认证失败 | `.env` 变量名/值不对 | 检查 `OPEN_API_KEY`、`BASE_URL_DASHSCOPE` |
 | 工具返回“拒绝写入系统保护目录” | 目标路径命中保护名单 | 换到用户目录，或确有必要时手动操作 |
 | 高危操作卡住不执行 | 未在 UI 点击批准 | 在确认卡片上点「批准执行」；拒绝后模型会收到 error ToolMessage |
@@ -1236,7 +1264,8 @@ uv run streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 | 短期/文件历史示例（未接入主链路） | `memorys/temporary_memory.py`、`memorys/persistent_memory.py` |
 | 配置 | `config/*.yml` |
 | 提示词 | `prompts/*.txt` |
-| 环境补丁 | `env_patch/` |
+| 环境补丁 | `env_patch/`（源文件）+ `scripts/apply_env_patch.py`（安装到 `.venv`） |
+| IDE 工作区配置 | `.vscode/settings.json`（解释器、集成终端启动参数；见 9.9） |
 | 重要变更日志 | `CHANGELOG.md` |
 
 ### 16.2 常用命令
@@ -1244,6 +1273,9 @@ uv run streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 ```powershell
 # 安装/同步依赖
 uv sync
+
+# 重建 .venv 后补回环境补丁（幂等；加 `--check` 只校验）
+uv run python scripts/apply_env_patch.py
 
 # 启动 UI
 uv run streamlit run app.py
@@ -1269,9 +1301,10 @@ uv run -m utils.logger_handler
 | 新增桌面控制动作 | 本文 5.2、7、13.2；`docs/OS_TOOLS.md` 第 3/5.8–5.12/8.7/11.1 节；`prompts/main_prompt.txt`；README 能力表；`architecture.svg` 工具层 |
 | 新增/删除中间件 | 本文 5.2、8、11；PROJECT_OVERVIEW 第 3 节；`architecture.svg` 编排层 |
 | 新增配置项 | 本文 9；README 配置速查；PROJECT_OVERVIEW 第 8 节 |
+| 修改 IDE 工作区配置（`.vscode/`）/ 终端启动参数 | 本文 9.9、5.1、10.1、13.12；README 4.2.1、配置速查、目录树；PROJECT_OVERVIEW 第 6/7/8 节；`architecture.svg` 横切层说明；CHANGELOG 的 Security 分组（属于仓库携带的行为变更，需知情） |
 | 修改电脑操作/确认流程 | 本文 7；PROJECT_OVERVIEW 第 5 节；`architecture.svg` |
 | 修改模型/依赖 | 本文 3、9.5、13.6；README 技术栈；PROJECT_OVERVIEW 第 2 节；`architecture.svg` 模型/存储层节点与副标题 |
-| 修改目录结构 | 本文 5.1；README 目录树；PROJECT_OVERVIEW 第 6 节 |
+| 修改目录结构 | 本文 5.1；README 目录树；PROJECT_OVERVIEW 第 6 节；`architecture.svg` 对应节点；本文 16.1 关键文件索引 |
 | 新增/删除文档或章节 | README 导读/文档地图；PROJECT_OVERVIEW 第 8 节；AGENTS 阅读顺序 |
 | 修复技术债 | 本文 12；PROJECT_OVERVIEW 第 7 节 |
 | 任何功能性改动（新增/变更/修复） | `CHANGELOG.md` 的 `## [Unreleased]` 补一条（Keep a Changelog 分组：Added/Changed/Deprecated/Removed/Fixed/Security）；不要把增量日志写进本文正文 |

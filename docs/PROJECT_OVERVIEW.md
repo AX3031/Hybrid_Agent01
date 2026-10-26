@@ -74,6 +74,8 @@ data/         external/records.csv
 memorys/      记忆方式工厂 + 短期/JSON/PostgreSQL checkpointer
 docs/         架构文档、电脑操作功能说明与 SVG
 env_patch/    .pth + sitecustomize.py
+scripts/      apply_env_patch.py（把 env_patch 装进 .venv，uv sync 后执行）
+.vscode/      IDE 工作区配置（解释器 + 集成终端放行 Activate.ps1，随仓库生效）
 ```
 
 ## 7. 关键约束
@@ -88,6 +90,7 @@ env_patch/    .pth + sitecustomize.py
 - **截图进入会话记忆**：截图以 base64 写入短期/JSON/PostgreSQL 记忆，连续截图会让会话体积变大，当前无自动清理。
 - **桌面控制的应用边界**：`app_open` 不启动终端/脚本宿主/注册表/磁盘工具（避免绕过 `run_command`）；`app_close` 不关闭系统关键进程。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
+- **Windows 集成终端已放宽执行策略**：`.vscode/settings.json` 给终端的 PowerShell 加了 `-ExecutionPolicy Bypass`（仅该终端进程、不写注册表），用于让自动执行的 `Activate.ps1` 跟 Windows 默认的 `Restricted` 共存；它不是安全防线，项目边界仍在 `safety.py` + HITL 确认 + 审计日志。
 - **未实现**：鉴权、限流、多租户、自动化测试、文件上传 UI；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏。
 
 ## 8. 按问题找位置
@@ -105,6 +108,8 @@ env_patch/    .pth + sitecustomize.py
 | OmniPilot 桌面控制怎么接入、怎么用、有什么风险？ | [OMNIPILOT_INTEGRATION_REPORT.md](OMNIPILOT_INTEGRATION_REPORT.md) |
 | 报告场景怎么切换？ | [ARCHITECTURE 第 8 节](ARCHITECTURE.md#8-报告场景与动态提示词) |
 | 配置在哪改？ | [ARCHITECTURE 第 9 节](ARCHITECTURE.md#9-配置体系) + [README 配置速查](../README.md#7-配置入口速查) |
+| 新建终端报「禁止运行脚本」/ IDE 终端怎么配？ | [README 4.2.1](../README.md#421-windows-新建终端报禁止运行脚本) + [ARCHITECTURE 9.9](ARCHITECTURE.md#99-ide-层配置与集成终端启动参数) |
+| `uv sync` 后补丁丢了？ | [README 4.2](../README.md#42-安装依赖) + `uv run python scripts/apply_env_patch.py` |
 | 想加工具/上传/记忆？ | [ARCHITECTURE 第 13 节](ARCHITECTURE.md#13-扩展指南) |
 | 有什么坑/技术债？ | [ARCHITECTURE 第 12 节](ARCHITECTURE.md#12-已知问题与技术债) |
 | 启动失败/日志在哪？ | [ARCHITECTURE 第 11 节](ARCHITECTURE.md#11-可观测性与错误处理) + [16.2](ARCHITECTURE.md#162-常用命令) |

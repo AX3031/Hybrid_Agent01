@@ -2,6 +2,18 @@
   "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
   "python.terminal.executeInFileDir": false,
   "python.terminal.activateEnvironment": true,
+  // Windows 家用版 PowerShell 默认执行策略为 Restricted，会拦住 IDE 自动执行的
+  // .venv\\Scripts\\Activate.ps1（表现为新建终端报「禁止运行脚本」，虚拟环境未激活）。
+  // 这里覆盖内置 PowerShell 配置，仅对本工作区打开的集成终端生效：
+  // 参数只作用于该终端进程，不写注册表、不改用户/机器策略，窗口关闭即失效。
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "icon": "terminal-powershell",
+      "args": ["-NoExit", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+    }
+  },
   "files.exclude": {
     "**/__pycache__": true,
     "**/*.pyc": true
