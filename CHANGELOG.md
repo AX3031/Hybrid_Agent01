@@ -18,6 +18,13 @@
 - `app.py`：`_render_events` / `_render_hitl_block`，渲染确认卡片并支持批准/拒绝。
 - `config/model.yml`：由 `config/rag.yml` 重命名而来，只保留对话与备用对话模型。
 - `docs/OS_TOOLS.md`：电脑操作功能说明，包含普通使用者场景、确认卡片、安全边界、FAQ、工具参数表与扩展方法。
+- `agent/tools/safety.py`：工作区域、敏感目录、系统目录、可执行后缀、危险命令黑名单、越界路径检查、覆盖备份、回收区，以及 `describe_operation` / `operation_risk` / `operation_target` 人话解释。
+- `utils/audit_logger.py`：每次工具调用写入 `logs/audit_YYYYMMDD.jsonl`（时间、会话、工具、参数、状态、结果摘要）。
+- `config/agent.yml`：新增 `workspace_roots` 与 `sensitive_dirs`。
+- `app.py`：新增「本次操作记录」面板与大白话确认卡片（目标、风险、影响范围）；侧边栏展示工作区域；按钮改为「我确认，执行 / 不要执行」。
+- 删除回收区：`delete_path` 默认移到 `.agent_trash`，`permanent=True` 才永久删除。
+- 覆盖前自动备份到 `.agent_backup`（10MB 上限）。
+- `ToolCallLimitMiddleware`：单轮最多 20 次工具调用。
 
 ### Changed
 
@@ -33,6 +40,11 @@
 - `model/factory.py` 与 `agent/tools/middleware.py` 移除 `EmbeddingsFactory` / `embed_model`，`rag_conf` 改名 `model_conf`。
 - 依赖：移除 `dashscope`、`langchain-chroma`、`langchain-community`、`pypdf`；新增 `psutil`。
 - 文档同步：`README.md`（定位、能力表、技术栈、快速开始、目录树、阅读路线、配置速查、限制、文档索引）、`docs/PROJECT_OVERVIEW.md`（技术栈、分层、主流程、电脑操作、目录、约束、问题索引）、`docs/ARCHITECTURE.md`（2.3、3、4、5、6、7、8.3、9、10、11、12、13、14、15、16）、`docs/architecture.svg`（标题、工具层、服务层、模型/存储层、副标题与版本快照）、`AGENTS.md`（阅读顺序与文档动作）。
+- `agent/tools/os_tools.py`：所有路径工具接入 `guard_path`；`delete_path` 增加 `permanent`；`write_text_file` 增加后缀检查与覆盖备份；`run_command` 增加命令黑名单与越界路径检查。
+- `agent/react_agent.py`：新增 `ToolCallLimitMiddleware`、`AgentEvent(type="tool")`、`resume_stream(pending_actions=...)`；中间件从 7 个增为 8 个。
+- `agent/tools/middleware.py`：`monitor_tool` 修正日志时序，并接入审计日志。
+- `prompts/main_prompt.txt`：补充工作区域、回收区、备份、可执行后缀、命令拦截、20 次上限、操作留痕等安全规则。
+- 文档同步：`docs/OS_TOOLS.md` 重写为「功能与安全说明」；`README.md` 能力表/配置速查/限制；`ARCHITECTURE.md` 7/9.3/10.4/11.5/12/16.1；`PROJECT_OVERVIEW.md` 5/6/7；`architecture.svg` 安全节点；`AGENTS.md` 安全策略同步规则。
 
 ### Removed
 
@@ -46,3 +58,4 @@
 
 - 聊天界面不再回显用户问题与工具中间结果，只输出不带 `tool_calls` 的最终 `AIMessage` 文本（技术债 TD-03）。
 - 修复回答为空时 `response_messages[-1]` 抛出的 `IndexError`（技术债 TD-04）。
+- `monitor_tool` 不再在工具执行前打印“调用成功”，改为“开始执行”与“调用成功”两条日志（技术债 TD-12）。

@@ -25,7 +25,7 @@
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | 1 页速览，人和 AI 的快速入口 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前状态的深度参考：模块、流程、配置、扩展、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构图（人看） |
-| [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能说明（普通人向 + 开发者参数） |
+| [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明（普通人向 + 开发者参数） |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更日志（Keep a Changelog 格式，未发布改动在 `[Unreleased]`） |
 
@@ -69,6 +69,13 @@
 | 文件写入 / 移动 / 复制 / 删除 | ✅ 已接入（需确认） | `write_text_file`、`move_path`、`copy_path`、`delete_path` |
 | 系统命令执行 | ✅ 已接入（需确认） | `run_command` |
 | 高危操作人工确认 | ✅ 已接入 | `HumanInTheLoopMiddleware` + `app.py` 确认卡片 |
+| 工作区域限制（读写都受限） | ✅ 已接入 | `agent/tools/safety.py` → `guard_path`；配置 `config/agent.yml` |
+| 敏感目录拦截 | ✅ 已接入 | `.ssh` / `.gnupg` / `.aws` 等默认拒绝 |
+| 聊天页操作记录 | ✅ 已接入 | `ReactAgent` 的 `tool` 事件 + `app.py` 的 `_render_operations` |
+| 结构化审计日志 | ✅ 已接入 | `utils/audit_logger.py` → `logs/audit_YYYYMMDD.jsonl` |
+| 删除回收区 / 覆盖备份 | ✅ 已接入 | `.agent_trash` / `.agent_backup` |
+| 危险命令与可执行文件拦截 | ✅ 已接入 | `safety.py` 的 `check_command` / `check_write_suffix` |
+| 单轮工具调用上限 | ✅ 已接入 | `ToolCallLimitMiddleware`（20 次/轮） |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
 | 模型调用前状态日志 | ✅ 已接入 | `agent/tools/middleware.py` → `log_before_model` |
 | 报告场景动态提示词 | ✅ 已接入 | `fill_context_for_report` + `report_prompt_switch` |
@@ -229,6 +236,9 @@ project2/
 | 想改什么 | 改哪里 |
 | --- | --- |
 | 换对话模型 | `config/model.yml` + `model/factory.py` |
+| 设置工作区域 | `config/agent.yml` 的 `workspace_roots`（改完重启） |
+| 设置敏感目录 | `config/agent.yml` 的 `sensitive_dirs` |
+| 调整备份/回收区/命令黑名单 | `agent/tools/safety.py` |
 | 设置备用对话模型 | `config/model.yml` 的 `backup_chat_model_name` |
 | 调整命令超时/读取上限 | `agent/tools/os_tools.py` 顶部常量 |
 | 换外部 CSV 路径 | `config/agent.yml` |
@@ -250,7 +260,8 @@ project2/
 2. **流式输出是“消息块级”而非 token 级**：只输出 `AIMessage` 文本，用户问题与工具中间结果不回显；UI 按事件块渲染。
 3. **PII 脱敏覆盖不完整**：`PIIMiddleware` 只处理模型输入/输出，日志与缓存中的敏感信息尚未脱敏。
 4. **外部数据示例为空**：`data/external/records.csv` 为空，`fetch_external_data` 会查不到记录；CSV 解析也未处理带逗号的引号字段。
-5. **命令无沙箱**：`run_command` 在用户权限下直接执行，确认卡片是唯一防线。
+5. **命令检查不是沙箱**：`run_command` 使用黑名单和工作区路径检查，精心构造的命令仍可能绕过；确认卡片是最后一道防线。
+6. **工作区限制基于路径比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 
@@ -263,7 +274,7 @@ project2/
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | 1 页速览：定位、分层、主流程、关键约束、问题索引 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构、模块职责、调用时序、配置、扩展指南、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构总览图 |
-| [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能说明：使用场景、确认卡片、安全边界、参数表 |
+| [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明：工作区域、确认卡片、回收区、审计日志、参数表 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更：加了什么 / 改了什么 / 修了什么 |
 

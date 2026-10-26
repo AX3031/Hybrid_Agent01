@@ -174,12 +174,12 @@ flowchart LR
 ### 4.2 关键设计决策
 
 1. **用 `create_agent` 而不是手写 ReAct 循环**：把“模型调用 → 工具执行 → 再调用模型”的循环交给 LangGraph，项目只负责工具、提示词和中间件。
-2. **只读与写操作分级**：读文件、列目录、搜索、查进程直接执行；写、删、移动、执行命令统一走人工确认。
+2. **工作区域 + 读写分级**：所有路径操作（包括读取）先过 `guard_path` 校验工作区；读文件、列目录、搜索、查进程直接执行，写、删、移动、执行命令再走人工确认。
 3. **中间件承载横切逻辑**：工具日志、模型前日志、提示词切换、人工审批都不侵入工具与模型代码。
 4. **动态提示词用 `runtime.context` 标记**：`fill_context_for_report` 工具触发后，`monitor_tool` 把 `context["report"]` 置为 `True`，下一次模型调用由 `report_prompt_switch` 切换提示词。
 5. **配置与提示词外置**：模型名、路径、提示词都不写死在代码里，便于替换与灰度。
 6. **绝对路径统一入口**：`utils/path_tool.get_abs_path()` 基于文件位置推导项目根，避免依赖当前工作目录。
-7. **工具内部做安全兜底**：`os_tools` 统一解析绝对路径、限制读取体积、拦截系统保护目录，即使模型给错参数也不会误伤系统。
+7. **安全兜底集中在 `safety.py`**：工作区校验、敏感目录、命令黑名单、可执行后缀、覆盖备份、回收区都是一处实现、所有工具复用。
 8. **OpenAI 兼容协议做模型适配层**：`ChatOpenAI` + `BASE_URL_DASHSCOPE` 可以较低成本切换供应商。
 
 ### 4.3 主链路与非主链路
@@ -241,9 +241,10 @@ project2/
 
 | 模块 | 关键符号 | 职责 | 上游/下游 |
 | --- | --- | --- | --- |
-| `app.py` | `st.session_state`、`st.bottom`、`popover`、`radio`、`_reset_chat`、`_load_history`、`_render_events`、`_render_hitl_block` | 页面渲染；底部栏（`st.bottom` + 水平容器）内左侧记忆按钮、右侧 `chat_input`；渲染高危操作确认卡片；侧边栏「会话管理」维护会话 ID/新建会话/清空记忆 | 上游：用户；下游：`ReactAgent`、`memory_factory` |
-| `agent/react_agent.py` | `ReactAgent.__init__`、`execute_stream`、`resume_stream`、`clear_memory`、`load_ui_messages`、`CONFIRM_TOOLS` | 用 `create_agent` 组装模型、20 个工具、7 个中间件；按 `memory_mode` 创建 checkpointer；同时订阅 `values`/`updates` 捕获文本与 interrupt | 上游：`app.py`；下游：模型、工具、中间件、记忆工厂 |
-| `agent/tools/os_tools.py` | `get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes`、`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path` | 本机信息、文件读写、搜索、进程与命令执行；统一做路径解析与系统目录保护 | 上游：模型 tool_call；下游：OS / 文件系统 / subprocess |
+| `app.py` | `st.session_state`、`_render_events`、`_render_operations`、`_render_hitl_block` | 页面渲染；侧边栏展示工作区域；确认卡片用大白话解释；回答下方展示本次操作记录 | 上游：用户；下游：`ReactAgent`、`memory_factory` |
+| `agent/react_agent.py` | `ReactAgent.__init__`、`execute_stream`、`resume_stream`、`AgentEvent`、`CONFIRM_TOOLS`、`TOOL_CALL_LIMIT` | 用 `create_agent` 组装模型、20 个工具、8 个中间件；产出 text/interrupt/tool 三类事件 | 上游：`app.py`；下游：模型、工具、中间件、记忆工厂 |
+| `agent/tools/os_tools.py` | 13 个 `@tool` | 本机信息、文件读写、搜索、进程与命令执行；所有路径操作先过 `guard_path`；软删除、覆盖备份、后缀拦截 | 上游：模型 tool_call；下游：`safety.py`、OS / 文件系统 / subprocess |
+| `agent/tools/safety.py` | `guard_path`、`is_sensitive`、`is_system_protected`、`check_command`、`check_write_suffix`、`backup_before_overwrite`、`move_to_trash`、`describe_operation` | 工作区域、敏感目录、命令黑名单、备份、回收区与小白化解释 | 被 `os_tools.py`、`app.py` 使用 |
 | `agent/tools/agent_tools.py` | `get_weather`、`get_user_location`、`get_user_id`、`get_current_month`、`fetch_external_data`、`fill_context_for_report`、`web_search_baidu` | 原有业务工具；CSV 懒加载缓存；百度联网搜索 | 上游：模型 tool_call；下游：CSV、百度 AI Search |
 | `agent/tools/middleware.py` | `monitor_tool`、`log_before_model`、`report_prompt_switch`、`pii_middleware_email`、`pii_middleware_phone`、`model_fallback_middleware` | 工具日志/场景标记、模型前日志、动态提示词、PII 脱敏、模型降级 | 被 `create_agent` 调用 |
 | `model/factory.py` | `BaseModelFactory`、`ChatModelFactory`、`chat_model` | 创建 Chat 单例；加载 `.env` | 被工具、Agent、中间件使用 |
@@ -251,6 +252,7 @@ project2/
 | `utils/prompt_loader.py` | `load_system_prompts`、`load_report_prompts` | 按配置路径读取提示词文件 | 被 Agent/中间件使用 |
 | `utils/path_tool.py` | `get_project_root`、`get_abs_path` | 基于 `utils/` 位置推导项目根 | 被所有路径读取使用 |
 | `utils/logger_handler.py` | `get_logger`、`logger` | 控制台 INFO + 按日文件 DEBUG；幂等 Handler | 被工具/中间件使用 |
+| `utils/audit_logger.py` | `log_tool_call` | 把每次工具调用写入 `logs/audit_YYYYMMDD.jsonl` | 被 `middleware.monitor_tool` 使用 |
 | `memorys/memory_factory.py` | `MEMORY_MODE_LABELS`、`DEFAULT_MEMORY_MODE`、`create_checkpointer` | 记忆方式枚举与 checkpointer 工厂；PostgreSQL 分支延迟导入 | 被 `agent/react_agent.py` 使用 |
 | `memorys/file_checkpointer.py` | `FileCheckpointSaver`、`get_file_checkpointer` | 继承 `InMemorySaver`，把 storage/writes/blobs 原子写入 JSON；进程内单例 | 被 `memory_factory.py` 使用 |
 | `memorys/postgres_checkpointer.py` | `get_checkpointer`、`close_pool` | PostgreSQL checkpointer（连接池 + 幂等建表）；选择 PostgreSQL 模式时使用 | 被 `memory_factory.py` 使用 |
@@ -481,46 +483,78 @@ AIMessage("已清理 3 个临时文件...")
 
 ---
 
-## 7. 电脑操作子系统
+## 7. 电脑操作子系统与安全模型
 
-电脑操作能力分两层：只读工具直接执行，有副作用的工具必须经过人工确认。
+电脑操作安全分五层：工作区域 → 敏感目录 → 人工确认 → 自动保险 → 操作留痕。
+只读工具直接执行，有副作用的工具必须人工确认。
 
 ### 7.1 工具分层
 
 | 层级 | 工具 | 执行方式 |
 | --- | --- | --- |
-| 只读 | `get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes` | 模型调用后立即执行 |
+| 只读 | `get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes` | 模型调用后立即执行，但仍受工作区限制 |
 | 有副作用 | `write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path` | 命中 `HumanInTheLoopMiddleware`，挂起等待确认 |
 
-### 7.2 人工确认链路
+### 7.2 工作区域
+
+`config/agent.yml` 的 `workspace_roots` 定义允许的根目录，默认 `~`（用户目录）与 `.`（项目根）。
+`agent/tools/safety.py` 在模块导入时解析一次，修改后需要重启。
+
+| 函数 | 作用 |
+| --- | --- |
+| `expand_path()` | 展开 `~`、环境变量、引号，返回绝对路径 |
+| `workspace_root_of()` | 大小写不敏感前缀匹配，返回所属工作区根 |
+| `guard_path(raw, for_write=False)` | 路径工具统一入口：工作区 → 敏感目录 → 系统保护目录 |
+| `is_system_protected()` | 拒绝 `C:\Windows`、`Program Files`、`ProgramData`、盘符根 |
+| `is_sensitive()` | 拒绝 `.ssh`、`.gnupg`、`.aws`、`.azure`、`.kube` |
+
+所有接路径的工具（包括读取和搜索）都先调用 `guard_path()`，越界直接返回错误字符串。
+`run_command` 额外检查 `cwd` 和命令字符串中的绝对路径。
+
+### 7.3 人工确认链路
 
 1. 模型返回带 `tool_calls` 的 `AIMessage`，其中包含 `delete_path` 等危险工具。
 2. `HumanInTheLoopMiddleware` 在 `after_model` 阶段检查 `interrupt_on`，命中后调用 `interrupt()` 挂起图。
 3. `ReactAgent._stream` 同时订阅 `values` 与 `updates`，从 `updates` 的 `__interrupt__` 中取出 `action_requests`，封装成 `AgentEvent(type="interrupt")`。
-4. `app.py` 把待确认操作写入 `st.session_state["pending_hitl"]`，渲染确认卡片（工具名 + 完整参数）。
-5. 用户点击「批准执行」或「拒绝执行」，`app.py` 调用 `agent.resume_stream(decisions, thread_id)`。
+4. `app.py` 把待确认操作写入 `st.session_state["pending_hitl"]`，用 `describe_operation` / `operation_risk` / `operation_target` 渲染小白化卡片；删除操作额外用 `measure_path` 统计影响范围。
+5. 用户点击「我确认，执行」或「不要执行」，`app.py` 调用 `agent.resume_stream(decisions, thread_id, pending_actions)`。
 6. `ReactAgent` 用 `Command(resume={"decisions": [...]})` 恢复图；批准则执行工具，拒绝则生成 `status="error"` 的 `ToolMessage`。
 
-`decisions` 与 `action_requests` 必须一一对应。当前 UI 采用「全部批准 / 全部拒绝」策略。
+`pending_actions` 用于把恢复后执行的 `ToolMessage` 与之前被挂起的操作配对，保证操作记录完整。
 
-### 7.3 安全兜底
+### 7.4 自动保险
 
-即使模型给出错误参数，`os_tools` 内部仍会做四层保护：
+| 保险 | 实现 | 位置 |
+| --- | --- | --- |
+| 删除回收区 | 默认 `shutil.move` 到工作区根的 `.agent_trash`，`permanent=True` 才真删 | `safety.move_to_trash` |
+| 覆盖前备份 | `copy2` 到 `.agent_backup`，超过 10 MB 跳过并说明 | `safety.backup_before_overwrite` |
+| 可执行文件拦截 | 拒绝 `.exe/.dll/.bat/.cmd/.ps1/.vbs/.js/.msi` 等后缀 | `safety.check_write_suffix` |
+| 危险命令拦截 | 13 条正则黑名单（format、diskpart、reg delete、shutdown、递归删除等） | `safety.check_command` |
+| 越界路径检查 | 提取命令中的盘符路径，逐个子校验工作区 | `safety.check_command` |
+| 单轮次数上限 | `ToolCallLimitMiddleware(run_limit=20, exit_behavior="continue")` | `react_agent.py` |
 
-| 保护 | 实现 |
-| --- | --- |
-| 路径规范化 | `_resolve()` 展开 `~`、环境变量与引号，统一为绝对路径 |
-| 系统目录拦截 | `_is_protected()` 拒绝写入/删除 `C:\Windows`、`C:\Program Files`、`C:\ProgramData`、盘符根目录 |
-| 读取体积限制 | 单次最多读 2 MB，返回给模型最多 8000/20000 字符 |
-| 搜索范围限制 | 内容搜索最多扫描 5000 个文件、跳过大于 5 MB 的文件 |
+### 7.5 操作留痕
 
-### 7.4 当前限制
+**聊天页操作记录**：
+
+- `ReactAgent._stream` 从 `updates` 中把 `ToolMessage` 与 `AIMessage.tool_calls` 按 `tool_call_id` 配对；
+- 产出 `AgentEvent(type="tool", tool_call={name, args, result, status})`；
+- `app.py` 用 `describe_operation` 转成人话，渲染到「本次操作记录」折叠面板。
+
+**审计日志**：
+
+- `monitor_tool` 在每次工具执行后调用 `utils/audit_logger.log_tool_call`；
+- 写入 `logs/audit_YYYYMMDD.jsonl`，字段：`time / session_id / tool / args / status / result`；
+- 写入失败静默，不影响主流程。
+
+### 7.6 当前限制
 
 1. **无 GUI 自动化**：只有文件系统、进程与命令行能力，不能点击按钮、切换窗口或截图。
-2. **命令无沙箱**：`run_command` 直接在用户权限下执行，确认卡片是唯一防线。
-3. **同步执行**：长命令会阻塞 Streamlit 请求，只有 `timeout` 上限。
-4. **无操作审计表**：只写日志（`logs/agent_*.log`），没有结构化的操作记录。
-5. **确认后不可编辑参数**：`allowed_decisions` 只开放 approve/reject，没有开放 edit。
+2. **命令检查不是沙箱**：黑名单 + 路径提取是尽力而为，精心构造的命令仍可能绕过；确认卡片是最后防线。
+3. **工作区基于路径字符串比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
+4. **同步执行**：长命令会阻塞 Streamlit 请求，只有 `timeout` 上限。
+5. **确认后不可编辑参数**：`allowed_decisions` 只开放 approve/reject。
+6. **历史会话无操作记录**：checkpointer 只存 messages，不存 operations。
 
 ---
 
@@ -612,6 +646,8 @@ import agent.tools.middleware
 | 键 | 当前值 | 作用 |
 | --- | --- | --- |
 | `external_data_path` | `data/external/records.csv` | 外部使用记录 CSV 路径 |
+| `workspace_roots` | `["~", "."]` | 允许操作的目录；`~` 为用户目录，`.` 为项目根 |
+| `sensitive_dirs` | `[".ssh", ".gnupg", ".aws", ".azure", ".kube"]` | 工作区内仍拒绝访问的目录 |
 
 ### 9.4 `config/prompts.yml`
 
@@ -710,10 +746,13 @@ memorys/chat_history/
 
 ### 10.4 文件系统访问范围
 
-- 默认允许读写用户目录（`C:\Users\<user>`）及其子目录。
+- 所有路径操作（包括读取）必须落在 `config/agent.yml` 的 `workspace_roots` 内；默认是用户目录与项目根。
+- 敏感目录（`.ssh`、`.gnupg`、`.aws`、`.azure`、`.kube`）一律拒绝。
 - 系统保护目录（`C:\Windows`、`C:\Program Files`、`C:\Program Files (x86)`、`C:\ProgramData`、盘符根目录）拒绝写入与删除。
 - 单次读取上限 2 MB；内容搜索最多扫描 5000 个文件、跳过大于 5 MB 的文件。
+- 删除默认移入工作区根的 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入。
 - 所有有副作用的操作在 UI 上必须经用户批准。
+- 每次工具调用写入 `logs/audit_YYYYMMDD.jsonl`。
 
 ---
 
@@ -780,6 +819,7 @@ memorys/chat_history/
 - 接入 LangSmith（`langsmith` 已是传递依赖）或 OpenTelemetry，做链路追踪。
 - 对工具失败率、确认拒绝率、平均响应时间做指标。
 - 记录 PII 脱敏命中次数（不记录原文）与模型降级次数、备用模型名、失败原因。
+- 已实现：`logs/audit_YYYYMMDD.jsonl` 记录每次工具调用（时间、会话、工具、参数、状态、结果摘要）。
 
 ---
 
@@ -800,7 +840,7 @@ memorys/chat_history/
 | TD-09 | P2 | 导入期副作用重 | `model/factory.py` 模块级 `chat_model`；`agent_tools.py` 模块级 `external_data` | 启动慢、测试难、配置错误提前暴露 | 惰性初始化/依赖注入/`lru_cache` 工厂 |
 | TD-10 | ✅ 已修复 | `model/factory.py` 重复 import 与遗留代码 | 已删除 `langchain_community` 的 `ChatOpenAI`/`ChatTongyi` 遗留 import，`BaseChatModel` 改从 `langchain_core.language_models.chat_models` 导入，对话模型统一走 `init_chat_model` | 可读性差，易误用 | 后续若接入非 OpenAI 协议供应商，再扩展 `model_provider` |
 | TD-11 | P2 | `OPEN_API_KEY` 命名易错 | `os.getenv("OPEN_API_KEY")` | 新成员常写成 `OPENAI_API_KEY` 导致认证失败 | 改名 `OPENAI_API_KEY`，或同时兼容两者 |
-| TD-12 | P2 | `monitor_tool` 成功日志早于执行 | 先打印成功，再 `handler(request)` | 排障误判 | 把“成功”日志移到 `handler` 之后 |
+| TD-12 | ✅ 已修复 | `monitor_tool` 成功日志早于执行 | 已改为“开始执行”与“调用成功”两条日志，并接入审计 | 排障不再误判 | — |
 | TD-13 | P2 | `pyproject.toml` 依赖可疑/缺失 | 仍声明 `callable`、`command`、`datetime`、`logger`；`langgraph` 由传递依赖提供 | 环境可复现性差；误装包 | 清理无用依赖；把直接使用包写入 `dependencies` |
 | TD-14 | P2 | `yaml.FullLoader` 非最安全 | `config_handler.py` | 恶意 YAML 有风险（本地配置场景较低） | 改用 `yaml.safe_load` |
 | TD-15 | ✅ 已修复 | `md5.text` 非原子、无并发保护 | RAG 子系统已整体移除 | — | — |
@@ -815,7 +855,8 @@ memorys/chat_history/
 | TD-24 | P3 | `utils/runtime.py` 约定未落地 | 仓库中无该文件；实际靠 `env_patch` | 规范与实现不一致 | 补齐 `runtime.setup_runtime()` 并在入口调用 |
 | TD-25 | P3 | 工具返回模拟数据 | `get_weather`、`get_user_location`、`get_user_id`、`get_current_month` | 演示可以，真实业务不可用 | 替换为真实 API/数据库，加超时与降级 |
 | TD-26 | P3 | 项目命名不一致 | `pyproject.toml` 的 `name = "project1"`、目录 `project2`、`.venv` prompt 为 `project1` | 新成员困惑，包名/镜像名易错 | 统一项目名，更新 `pyproject` 与文档 |
-| TD-27 | P2 | 提示词注入/内容安全防护仍不完整 | 提示词已加指令隔离；无输出审核、工具权限 | 恶意文档/输入仍可能诱导越权 | 文档信任分级、工具权限、输入/输出护栏 |
+| TD-27 | P2 | 提示词注入/内容安全防护仍不完整 | 已有工作区、命令黑名单、HITL 与指令隔离；无输出审核 | 恶意内容仍可能诱导越权，但会被工作区/命令拦截挡住一部分 | 输出护栏、工具权限分级 |
+| TD-28 | P2 | 工作区不是安全沙箱 | 路径比较 + 命令黑名单/正则；不防符号链接逃逸与命令混淆 | 精心构造的输入仍可能越界 | 用容器/受限用户运行；引入命令解析器或白名单 |
 
 ### 12.1 建议修复顺序
 
@@ -1145,6 +1186,8 @@ uv run streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 | UI 入口 | `app.py` |
 | Agent 组装 | `agent/react_agent.py` |
 | 工具实现 | `agent/tools/os_tools.py`（电脑操作）、`agent/tools/agent_tools.py`（业务） |
+| 安全策略 | `agent/tools/safety.py`（工作区 / 敏感目录 / 命令拦截 / 备份 / 回收区 / 人话解释） |
+| 审计日志 | `utils/audit_logger.py` |
 | 人工确认 | `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware` |
 | 中间件 | `agent/tools/middleware.py` |
 | 模型工厂 | `model/factory.py` |

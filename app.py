@@ -1,10 +1,18 @@
-import json
 import uuid
+from pathlib import Path
 from typing import Iterator
 
 import streamlit as st
 
 from agent.react_agent import AgentEvent, ReactAgent
+from agent.tools.safety import (
+    describe_operation,
+    measure_path,
+    operation_risk,
+    operation_target,
+    summarize_result,
+    workspace_text,
+)
 from memorys.memory_factory import DEFAULT_MEMORY_MODE, MEMORY_MODE_LABELS
 
 DEFAULT_SESSION_ID = "user_001"
@@ -46,10 +54,11 @@ def _shorten(text: str, limit: int = 14) -> str:
     return text if len(text) <= limit else f"{text[:limit]}…"
 
 
-def _render_events(event_stream: Iterator[AgentEvent]) -> str:
-    """渲染 Agent 事件流：文本直接显示，危险操作暂存到 session_state 等待确认。"""
+def _render_events(event_stream: Iterator[AgentEvent]) -> tuple[str, list[dict]]:
+    """渲染 Agent 事件流，返回（回答文本, 本次操作记录）。"""
     placeholder = st.chat_message("assistant").empty()
     buffer = ""
+    operations: list[dict] = []
 
     for event in event_stream:
         if event.type == "text":
@@ -57,14 +66,32 @@ def _render_events(event_stream: Iterator[AgentEvent]) -> str:
             placeholder.markdown(buffer)
         elif event.type == "interrupt":
             st.session_state["pending_hitl"] = {"actions": event.action_requests}
+        elif event.type == "tool" and event.tool_call:
+            operations.append(event.tool_call)
 
     if not buffer:
         placeholder.empty()
-    return buffer.strip()
+    return buffer.strip(), operations
+
+
+def _render_operations(operations: list[dict], expanded: bool = True) -> None:
+    """用大白话展示本次做了哪些操作。"""
+    if not operations:
+        return
+    with st.expander(f"本次操作记录（{len(operations)} 步）", expanded=expanded):
+        for index, operation in enumerate(operations, start=1):
+            name = operation.get("name", "")
+            args = operation.get("args", {}) or {}
+            title, detail = describe_operation(name, args)
+            status = operation.get("status", "success")
+            status_text = "已完成" if status == "success" else "未完成"
+            st.markdown(f"**{index}. {title}（{status_text}）**")
+            st.write(detail)
+            st.caption(f"结果：{summarize_result(operation.get('result', ''))}")
 
 
 def _render_hitl_block(agent: ReactAgent) -> None:
-    """渲染待确认操作卡片；用户批准或拒绝后继续执行被挂起的工具调用。"""
+    """渲染待确认操作卡片；用大白话解释每一步会做什么、有什么风险。"""
     pending = st.session_state.get("pending_hitl")
     if not pending:
         return
@@ -73,20 +100,36 @@ def _render_hitl_block(agent: ReactAgent) -> None:
     session_id = st.session_state["session_id"]
 
     with st.container(border=True):
-        st.warning("以下操作会修改你的电脑，请确认后执行：")
-        for action in actions:
-            st.code(
-                json.dumps(
-                    {"tool": action.get("name"), "args": action.get("args")},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                language="json",
-            )
+        st.warning(
+            f"下面有 {len(actions)} 个操作需要你确认。"
+            "它们会修改这台电脑上的文件或设置，确认前请看清每一步。"
+        )
+
+        for index, action in enumerate(actions, start=1):
+            name = action.get("name", "")
+            args = action.get("args", {}) or {}
+            title, detail = describe_operation(name, args)
+            target = operation_target(name, args)
+            risk = operation_risk(name, args)
+
+            st.markdown(f"**{index}. {title}**")
+            st.write(detail)
+            if target:
+                st.code(target, language=None)
+
+            if name == "delete_path":
+                try:
+                    path = Path(str(args.get("path", "")))
+                    if path.exists():
+                        st.info(f"影响范围：{measure_path(path)}")
+                except OSError:
+                    pass
+
+            st.caption(f"需要注意：{risk}")
 
         col_approve, col_reject = st.columns(2)
-        approved = col_approve.button("批准执行", type="primary", use_container_width=True)
-        rejected = col_reject.button("拒绝执行", use_container_width=True)
+        approved = col_approve.button("我确认，执行", type="primary", use_container_width=True)
+        rejected = col_reject.button("不要执行", use_container_width=True)
 
     if not (approved or rejected):
         return
@@ -97,9 +140,17 @@ def _render_hitl_block(agent: ReactAgent) -> None:
         decisions = [{"type": "reject", "message": "用户拒绝执行该操作"} for _ in actions]
 
     st.session_state.pop("pending_hitl", None)
-    content = _render_events(agent.resume_stream(decisions, thread_id=session_id))
-    if content:
-        st.session_state["message"].append({"role": "assistant", "content": content})
+    content, operations = _render_events(
+        agent.resume_stream(decisions, thread_id=session_id, pending_actions=actions)
+    )
+    if content or operations:
+        st.session_state["message"].append(
+            {
+                "role": "assistant",
+                "content": content or "（操作已处理，详见下方记录）",
+                "operations": operations,
+            }
+        )
     st.rerun()
 
 
@@ -164,6 +215,12 @@ with st.sidebar:
 
     st.caption("记忆方式在输入框左侧的按钮里切换；这里按会话 ID 保存与恢复记录。")
 
+    st.divider()
+    st.subheader("工作区域")
+    st.caption("所有文件操作（包括读取）只能在这个范围内执行。")
+    st.code(workspace_text(), language=None)
+    st.caption("如需修改，编辑 config/agent.yml 的 workspace_roots 后重启应用。")
+
 # 记忆方式变化：销毁旧 Agent，稍后按新模式重建
 mode_changed = st.session_state.get("memory_mode") != selected_mode
 if mode_changed:
@@ -214,6 +271,7 @@ if st.session_state.get("memory_error"):
 
 for message in st.session_state["message"]:
     st.chat_message(message["role"]).write(message["content"])
+    _render_operations(message.get("operations", []), expanded=False)
 
 # 有待确认的危险操作时，在消息区展示确认卡片
 _render_hitl_block(st.session_state["agent"])
@@ -224,15 +282,25 @@ if prompt:
 
     with st.spinner("正在处理..."):
         try:
-            content = _render_events(
+            content, operations = _render_events(
                 st.session_state["agent"].execute_stream(
                     prompt, thread_id=st.session_state["session_id"]
                 )
             )
         except Exception as exc:
             st.error(f"生成回答失败：{exc}")
-            content = ""
+            content, operations = "", []
 
-    if content:
-        st.session_state["message"].append({"role": "assistant", "content": content})
+    # 有操作等待确认时，本轮先不写历史，避免和确认后的结果重复
+    if st.session_state.get("pending_hitl"):
+        st.rerun()
+
+    if content or operations:
+        st.session_state["message"].append(
+            {
+                "role": "assistant",
+                "content": content or "（操作已完成，详见下方记录）",
+                "operations": operations,
+            }
+        )
     st.rerun()

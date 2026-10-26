@@ -1,1 +1,16 @@
 external_data_path: data/external/records.csv
+
+# 电脑操作的工作区域：所有路径操作（包括读取）只能在这些目录内执行。
+# "~" 表示当前用户目录，"." 表示项目根目录；
+# 如需操作其他目录，在这里追加绝对路径后重启应用。
+workspace_roots:
+  - "~"
+  - "."
+
+# 工作区内仍然禁止访问的敏感目录（按目录名匹配，不区分大小写）。
+sensitive_dirs:
+  - ".ssh"
+  - ".gnupg"
+  - ".aws"
+  - ".azure"
+  - ".kube"

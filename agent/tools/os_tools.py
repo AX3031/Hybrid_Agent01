@@ -1,8 +1,14 @@
 """电脑信息获取与文件操作工具。
 
-只读工具（系统信息、列目录、读文件、搜索、进程）直接执行；
-有副作用的工具（写文件、移动、复制、删除、执行命令、打开路径）由
-HumanInTheLoopMiddleware 在调用前拦截，等待用户确认后才真正执行。
+安全约束：
+- 所有路径操作（包括读取）都必须落在 `config/agent.yml` 的 `workspace_roots` 内；
+- 敏感目录（`.ssh`、`.aws` 等）一律拒绝；
+- 写文件拒绝可执行后缀，覆盖前自动备份；
+- 删除默认移入 `.agent_trash` 回收区，只有 permanent=True 才真正删除；
+- 命令执行会过危险命令黑名单和工作区外路径检查。
+
+只读工具直接执行；有副作用的工具由 HumanInTheLoopMiddleware 在调用前拦截，
+等待用户在界面上确认后才真正执行。
 """
 
 import fnmatch
@@ -19,6 +25,15 @@ from typing import Literal
 import psutil
 from langchain_core.tools import tool
 
+from agent.tools.safety import (
+    backup_before_overwrite,
+    check_command,
+    check_write_suffix,
+    format_size,
+    guard_path,
+    move_to_trash,
+    workspace_roots,
+)
 from utils.logger_handler import logger
 
 # 单次读取上限，避免误读超大文件把上下文撑爆
@@ -29,38 +44,6 @@ _MAX_SEARCH_FILES = 5000
 _MAX_SEARCH_FILE_BYTES = 5 * 1024 * 1024
 # 返回给模型的文本长度上限
 _MAX_RESULT_CHARS = 8000
-
-# 写/删类操作的系统保护目录，拒绝直接修改
-_PROTECTED_ROOTS = [
-    Path(path).resolve()
-    for path in (
-        os.environ.get("SystemRoot", r"C:\Windows"),
-        os.environ.get("ProgramFiles", r"C:\Program Files"),
-        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-        os.environ.get("ProgramData", r"C:\ProgramData"),
-    )
-    if path
-]
-
-
-def _resolve(raw: str) -> Path:
-    """把用户给的路径展开为绝对路径，去掉可能包裹的引号。"""
-    text = str(raw).strip().strip('"').strip("'")
-    text = os.path.expandvars(os.path.expanduser(text))
-    return Path(text).resolve()
-
-
-def _is_protected(path: Path) -> bool:
-    """判断路径是否落在系统保护目录内。"""
-    if len(path.parts) <= 1:  # 盘符根目录
-        return True
-    for root in _PROTECTED_ROOTS:
-        try:
-            path.relative_to(root)
-            return True
-        except ValueError:
-            continue
-    return False
 
 
 def _truncate(text: str, limit: int = _MAX_RESULT_CHARS) -> str:
@@ -84,21 +67,11 @@ def _read_text(path: Path) -> str:
     return _decode(raw)
 
 
-def _format_size(size: int) -> str:
-    units = ("B", "KB", "MB", "GB", "TB")
-    value = float(size)
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
-            return f"{value:.0f}{unit}" if unit == "B" else f"{value:.1f}{unit}"
-        value /= 1024
-    return f"{size}B"
-
-
 def _format_time(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
 
 
-@tool(description="获取当前电脑的系统信息：操作系统、主机名、当前用户、CPU 核心数、内存、磁盘占用，以及桌面/下载/文档目录的绝对路径。无入参。")
+@tool(description="获取当前电脑的系统信息：操作系统、主机名、当前用户、CPU 核心数、内存、磁盘占用、工作区域，以及桌面/下载/文档目录。无入参。")
 def get_system_info() -> str:
     home = Path.home()
     memory = psutil.virtual_memory()
@@ -110,13 +83,17 @@ def get_system_info() -> str:
         f"用户目录：{home}",
         f"当前工作目录：{Path.cwd()}",
         f"CPU 核心数：{os.cpu_count()}",
-        f"内存：已用 {_format_size(memory.used)} / 共 {_format_size(memory.total)}（{memory.percent}%）",
+        f"内存：已用 {format_size(memory.used)} / 共 {format_size(memory.total)}（{memory.percent}%）",
     ]
 
     for name in ("Desktop", "Downloads", "Documents"):
         candidate = home / name
         if candidate.exists():
             lines.append(f"{name} 目录：{candidate}")
+
+    lines.append("工作区域（文件操作只能在这些目录内）：")
+    for root in workspace_roots():
+        lines.append(f"  {root}")
 
     lines.append("磁盘：")
     for part in psutil.disk_partitions(all=False):
@@ -125,16 +102,18 @@ def get_system_info() -> str:
         except OSError:
             continue
         lines.append(
-            f"  {part.device} 已用 {_format_size(usage.used)} / 共 {_format_size(usage.total)}"
+            f"  {part.device} 已用 {format_size(usage.used)} / 共 {format_size(usage.total)}"
             f"（{usage.percent}%）挂载点 {part.mountpoint}"
         )
 
     return "\n".join(lines)
 
 
-@tool(description="列出指定目录下的文件和子目录，返回名称、类型、大小和修改时间。path 可省略，默认为当前工作目录；show_hidden 控制是否显示隐藏文件。")
+@tool(description="列出工作区域内指定目录下的文件和子目录，返回名称、类型、大小和修改时间。path 可省略，默认为项目根目录；show_hidden 控制是否显示以点开头的隐藏项。")
 def list_directory(path: str = ".", show_hidden: bool = False) -> str:
-    target = _resolve(path)
+    target, error = guard_path(path)
+    if error:
+        return error
     if not target.exists():
         return f"目录不存在：{target}"
     if not target.is_dir():
@@ -157,7 +136,7 @@ def list_directory(path: str = ".", show_hidden: bool = False) -> str:
     entries.sort(key=lambda row: (not row[0], row[1].lower()))
     lines = [f"目录：{target}（共 {len(entries)} 项）"]
     for is_dir, name, kind, stat in entries[:500]:
-        size = "-" if is_dir else _format_size(stat.st_size)
+        size = "-" if is_dir else format_size(stat.st_size)
         lines.append(f"[{kind}] {name} | {size} | {_format_time(stat.st_mtime)}")
 
     if len(entries) > 500:
@@ -165,9 +144,11 @@ def list_directory(path: str = ".", show_hidden: bool = False) -> str:
     return "\n".join(lines)
 
 
-@tool(description="读取文本文件内容。path 为文件绝对路径；start 为起始字符偏移，max_chars 为最多返回的字符数，用于分段读取大文件。")
+@tool(description="读取工作区域内文本文件的内容。path 为文件路径；start 为起始字符偏移，max_chars 为最多返回的字符数，用于分段读取大文件。")
 def read_text_file(path: str, start: int = 0, max_chars: int = 20000) -> str:
-    target = _resolve(path)
+    target, error = guard_path(path)
+    if error:
+        return error
     if not target.exists():
         return f"文件不存在：{target}"
     if not target.is_file():
@@ -190,9 +171,11 @@ def read_text_file(path: str, start: int = 0, max_chars: int = 20000) -> str:
     return f"{header}\n{chunk}"
 
 
-@tool(description="按文件名模式搜索文件。root 为搜索根目录，pattern 支持通配符（如 *.py、report*、*.docx），max_results 为结果数量上限。")
+@tool(description="按文件名模式在工作区域内搜索文件。root 为搜索根目录（必须在工作区域内），pattern 支持通配符（如 *.py、report*），max_results 为结果数量上限。")
 def search_files(root: str = ".", pattern: str = "*", max_results: int = 50) -> str:
-    base = _resolve(root)
+    base, error = guard_path(root)
+    if error:
+        return error
     if not base.is_dir():
         return f"不是目录：{base}"
 
@@ -220,14 +203,16 @@ def search_files(root: str = ".", pattern: str = "*", max_results: int = 50) -> 
     return "\n".join(lines)
 
 
-@tool(description="在文件内容中搜索关键词。root 为搜索根目录，keyword 为要查找的文本，file_glob 限定文件类型（如 *.py、*.txt、*.log），max_results 为命中行数上限。")
+@tool(description="在工作区域内按文件内容搜索关键词。root 为搜索根目录（必须在工作区域内），keyword 为要查找的文本，file_glob 限定文件类型（如 *.py），max_results 为命中行数上限。")
 def search_text(
     root: str = ".",
     keyword: str = "",
     file_glob: str = "*.*",
     max_results: int = 50,
 ) -> str:
-    base = _resolve(root)
+    base, error = guard_path(root)
+    if error:
+        return error
     if not base.is_dir():
         return f"不是目录：{base}"
     if not keyword.strip():
@@ -289,19 +274,27 @@ def list_processes(top_n: int = 20) -> str:
     rows.sort(reverse=True)
     lines = [f"内存占用最高的 {min(top_n, len(rows))} 个进程："]
     for rss, pid, name, username in rows[:top_n]:
-        lines.append(f"PID {pid} | {name} | {_format_size(rss)} | {username}")
+        lines.append(f"PID {pid} | {name} | {format_size(rss)} | {username}")
     return "\n".join(lines)
 
 
-@tool(description="把文本写入文件（有副作用，需用户确认）。path 为文件绝对路径；mode 为 write（覆盖）或 append（追加）；父目录不存在时会自动创建。")
+@tool(description="把文本写入工作区域内的文件（有副作用，需用户确认）。path 为文件路径；mode 为 write（覆盖）或 append（追加）；覆盖前会自动备份原文件；拒绝写入 .exe/.bat/.ps1 等可执行后缀。")
 def write_text_file(
     path: str,
     content: str,
     mode: Literal["write", "append"] = "write",
 ) -> str:
-    target = _resolve(path)
-    if _is_protected(target):
-        return f"拒绝写入系统保护目录：{target}"
+    target, error = guard_path(path, for_write=True)
+    if error:
+        return error
+
+    suffix_error = check_write_suffix(target)
+    if suffix_error:
+        return suffix_error
+    if target.exists() and target.is_dir():
+        return f"目标是目录，不能写入文件：{target}"
+
+    backup_note = backup_before_overwrite(target) if mode == "write" else ""
 
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -311,14 +304,15 @@ def write_text_file(
         return f"写入失败：{target}，{exc}"
 
     logger.info(f"[write_text_file]已写入 {target}（mode={mode}）")
-    return f"已{'追加' if mode == 'append' else '写入'} {len(content)} 个字符到 {target}"
+    action = "追加" if mode == "append" else "写入"
+    return f"已{action} {len(content)} 个字符到 {target}{backup_note}"
 
 
-@tool(description="创建目录（有副作用，需用户确认）。path 为目录绝对路径，已存在时直接返回成功。")
+@tool(description="在工作区域内创建目录（有副作用，需用户确认）。path 为目录路径，已存在时直接返回成功。")
 def create_directory(path: str) -> str:
-    target = _resolve(path)
-    if _is_protected(target):
-        return f"拒绝在系统保护目录创建：{target}"
+    target, error = guard_path(path, for_write=True)
+    if error:
+        return error
 
     try:
         target.mkdir(parents=True, exist_ok=True)
@@ -327,12 +321,14 @@ def create_directory(path: str) -> str:
     return f"目录已就绪：{target}"
 
 
-@tool(description="移动或重命名文件/目录（有副作用，需用户确认）。source 为源路径，destination 为目标路径；目标为已存在目录时移动到该目录下。")
+@tool(description="在工作区域内移动或重命名文件/目录（有副作用，需用户确认）。source 和 destination 都必须在工作区域内；目标为已存在目录时移动到该目录下。")
 def move_path(source: str, destination: str) -> str:
-    src = _resolve(source)
-    dst = _resolve(destination)
-    if _is_protected(src) or _is_protected(dst):
-        return "拒绝操作系统保护目录"
+    src, error = guard_path(source, for_write=True)
+    if error:
+        return error
+    dst, error = guard_path(destination, for_write=True)
+    if error:
+        return error
     if not src.exists():
         return f"源路径不存在：{src}"
     if dst.is_dir():
@@ -348,12 +344,14 @@ def move_path(source: str, destination: str) -> str:
     return f"已移动：{src} -> {dst}"
 
 
-@tool(description="复制文件或目录（有副作用，需用户确认）。source 为源路径，destination 为目标路径；目标为已存在目录时复制到该目录下。")
+@tool(description="在工作区域内复制文件或目录（有副作用，需用户确认）。source 必须在工作区域内，destination 也必须在工作区域内；目标为已存在目录时复制到该目录下。")
 def copy_path(source: str, destination: str) -> str:
-    src = _resolve(source)
-    dst = _resolve(destination)
-    if _is_protected(dst):
-        return f"拒绝复制到系统保护目录：{dst}"
+    src, error = guard_path(source)
+    if error:
+        return error
+    dst, error = guard_path(destination, for_write=True)
+    if error:
+        return error
     if not src.exists():
         return f"源路径不存在：{src}"
     if dst.is_dir():
@@ -372,34 +370,54 @@ def copy_path(source: str, destination: str) -> str:
     return f"已复制：{src} -> {dst}"
 
 
-@tool(description="删除文件或目录（有副作用，需用户确认）。path 为目标路径；recursive 为 True 时递归删除整个目录，为 False 时只能删除空目录。")
-def delete_path(path: str, recursive: bool = False) -> str:
-    target = _resolve(path)
-    if _is_protected(target):
-        return f"拒绝删除系统保护目录：{target}"
+@tool(description="删除工作区域内的文件或目录（有副作用，需用户确认）。默认移到 .agent_trash 回收区，permanent=True 才永久删除；非空目录需要 recursive=True。")
+def delete_path(path: str, recursive: bool = False, permanent: bool = False) -> str:
+    target, error = guard_path(path, for_write=True)
+    if error:
+        return error
     if not target.exists():
         return f"路径不存在：{target}"
 
-    try:
-        if target.is_dir():
-            if recursive:
+    # 空目录：直接删，不需要进回收区
+    if target.is_dir() and not recursive:
+        try:
+            target.rmdir()
+        except OSError as exc:
+            return f"删除失败（目录可能非空，需要 recursive=True）：{target}，{exc}"
+        logger.info(f"[delete_path]已删除空目录 {target}")
+        return f"已删除空目录：{target}"
+
+    if permanent:
+        try:
+            if target.is_dir():
                 shutil.rmtree(str(target))
             else:
-                target.rmdir()
-        else:
-            target.unlink()
-    except OSError as exc:
-        return f"删除失败：{target}，{exc}"
+                target.unlink()
+        except OSError as exc:
+            return f"永久删除失败：{target}，{exc}"
+        logger.info(f"[delete_path]已永久删除 {target}")
+        return f"已永久删除：{target}（不可恢复）"
 
-    logger.info(f"[delete_path]已删除 {target}（recursive={recursive}）")
-    return f"已删除：{target}"
+    dest, trash_error = move_to_trash(target)
+    if trash_error:
+        return trash_error
+    logger.info(f"[delete_path]已移入回收区 {target} -> {dest}")
+    return f"已移到回收区：{dest}（如需彻底删除，请显式使用 permanent=True）"
 
 
-@tool(description="执行系统命令（有副作用，需用户确认）。command 为要执行的命令字符串，cwd 为工作目录（可省略），timeout 为超时秒数。返回退出码、标准输出和标准错误。")
+@tool(description="在工作区域内执行系统命令（有副作用，需用户确认）。command 为命令字符串，cwd 为工作目录（必须在工作区域内），timeout 为超时秒数；危险命令和工作区外路径会被拒绝。")
 def run_command(command: str, cwd: str | None = None, timeout: int = 60) -> str:
-    workdir = _resolve(cwd) if cwd else None
-    if workdir is not None and not workdir.is_dir():
-        return f"工作目录不存在：{workdir}"
+    command_error = check_command(command)
+    if command_error:
+        return command_error
+
+    workdir = None
+    if cwd:
+        workdir, error = guard_path(cwd)
+        if error:
+            return error
+        if not workdir.is_dir():
+            return f"工作目录不存在：{workdir}"
 
     timeout = max(1, min(timeout, 600))
     try:
@@ -426,13 +444,15 @@ def run_command(command: str, cwd: str | None = None, timeout: int = 60) -> str:
     return _truncate("\n".join(parts))
 
 
-@tool(description="用系统默认程序打开文件、目录或网址（有副作用，需用户确认）。path 为文件/目录绝对路径或 URL。")
+@tool(description="用系统默认程序打开工作区域内的文件/目录，或打开网址（有副作用，需用户确认）。path 为文件路径、目录路径或 http(s) URL。")
 def open_path(path: str) -> str:
     text = str(path).strip().strip('"').strip("'")
     if text.startswith(("http://", "https://")):
         target = text
     else:
-        resolved = _resolve(text)
+        resolved, error = guard_path(text)
+        if error:
+            return error
         if not resolved.exists():
             return f"路径不存在：{resolved}"
         target = str(resolved)

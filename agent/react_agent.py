@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain.agents.middleware import HumanInTheLoopMiddleware, ToolCallLimitMiddleware
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from model.factory import chat_model
@@ -43,6 +43,13 @@ hitl_middleware = HumanInTheLoopMiddleware(
     description_prefix="该操作会修改电脑状态，请确认参数后再决定是否执行",
 )
 
+# 单轮对话最多 20 次工具调用，防止模型陷入循环或误操作
+TOOL_CALL_LIMIT = 20
+tool_limit_middleware = ToolCallLimitMiddleware(
+    run_limit=TOOL_CALL_LIMIT,
+    exit_behavior="continue",
+)
+
 
 @dataclass
 class AgentEvent:
@@ -50,11 +57,13 @@ class AgentEvent:
 
     - type="text"：模型输出的一段文本，content 为内容
     - type="interrupt"：有危险操作等待确认，action_requests 为待确认的工具调用
+    - type="tool"：一个工具调用已返回结果，tool_call 包含名称、参数、结果、状态
     """
 
     type: str
     content: str = ""
     action_requests: list[dict[str, Any]] = field(default_factory=list)
+    tool_call: dict[str, Any] | None = None
 
 
 def _default_memory_mode() -> str:
@@ -69,6 +78,8 @@ class ReactAgent:
         # 记忆方式：short_term（默认）/ file / postgres
         self.memory_mode = memory_mode or _default_memory_mode()
         self.checkpointer = create_checkpointer(self.memory_mode)
+        # 确认后恢复执行时，用于把 ToolMessage 与之前被挂起的操作配对
+        self._resume_pending_actions: list[dict] = []
         self.agent = create_agent(
             model=chat_model,
             system_prompt=load_system_prompts(),
@@ -91,12 +102,14 @@ class ReactAgent:
                 log_before_model,
                 report_prompt_switch,
                 hitl_middleware,
+                tool_limit_middleware,
             ],
             checkpointer=self.checkpointer,
         )
 
     def execute_stream(self, query: str, thread_id: str | None = None):
-        """提交一条用户消息，流式返回文本与待确认事件。"""
+        """提交一条用户消息，流式返回文本、工具记录与待确认事件。"""
+        self._resume_pending_actions = []
         input_dict = {
             "messages": [
                 {"role": "user", "content": query}
@@ -104,12 +117,19 @@ class ReactAgent:
         }
         yield from self._stream(input_dict, self._build_config(thread_id))
 
-    def resume_stream(self, decisions: list[dict], thread_id: str | None = None):
+    def resume_stream(
+        self,
+        decisions: list[dict],
+        thread_id: str | None = None,
+        pending_actions: list[dict] | None = None,
+    ):
         """用户确认后继续执行被挂起的工具调用。
 
         decisions 需与待确认操作一一对应，例如：
         [{"type": "approve"}] 或 [{"type": "reject", "message": "用户拒绝执行"}]
+        pending_actions 传入待确认的 action_requests，用于把执行结果补进操作记录。
         """
+        self._resume_pending_actions = list(pending_actions or [])
         yield from self._stream(Command(resume={"decisions": decisions}), self._build_config(thread_id))
 
     @staticmethod
@@ -118,31 +138,66 @@ class ReactAgent:
         return {"configurable": {"thread_id": thread_id or "default"}}
 
     def _stream(self, payload: Any, config: dict):
-        # 同时订阅 values（完整状态，用于取模型回答）和 updates（用于捕获 interrupt）
-        for mode, chunk in self.agent.stream(
-            payload,
-            stream_mode=["values", "updates"],
-            context={"report": False},
-            config=config,
-        ):
-            if mode == "updates":
-                if "__interrupt__" in chunk:
-                    action_requests = []
-                    for interrupt_obj in chunk["__interrupt__"]:
-                        value = getattr(interrupt_obj, "value", {}) or {}
-                        action_requests.extend(value.get("action_requests", []))
-                    if action_requests:
-                        yield AgentEvent(type="interrupt", action_requests=action_requests)
-                continue
+        pending_calls: dict[str, dict] = {}
 
-            messages = chunk.get("messages") or []
-            if not messages:
-                continue
-            lastest_message = messages[-1]
-            # 只输出模型回答，避免把用户问题、工具结果回显到页面
-            if isinstance(lastest_message, AIMessage) and not lastest_message.tool_calls:
-                if isinstance(lastest_message.content, str) and lastest_message.content.strip():
-                    yield AgentEvent(type="text", content=lastest_message.content.strip() + "\n")
+        try:
+            # 同时订阅 values（完整状态，用于取模型回答）和 updates（用于捕获 interrupt 与工具结果）
+            for mode, chunk in self.agent.stream(
+                payload,
+                stream_mode=["values", "updates"],
+                context={"report": False},
+                config=config,
+            ):
+                if mode == "updates":
+                    if "__interrupt__" in chunk:
+                        action_requests = []
+                        for interrupt_obj in chunk["__interrupt__"]:
+                            value = getattr(interrupt_obj, "value", {}) or {}
+                            action_requests.extend(value.get("action_requests", []))
+                        if action_requests:
+                            yield AgentEvent(type="interrupt", action_requests=action_requests)
+                        continue
+
+                    for node_update in chunk.values():
+                        if not isinstance(node_update, dict):
+                            continue
+                        for message in node_update.get("messages", []) or []:
+                            if isinstance(message, AIMessage) and message.tool_calls:
+                                for tool_call in message.tool_calls:
+                                    pending_calls[tool_call["id"]] = tool_call
+                            elif isinstance(message, ToolMessage):
+                                tool_call = pending_calls.pop(message.tool_call_id, None)
+                                if tool_call is None and self._resume_pending_actions:
+                                    action = self._resume_pending_actions.pop(0)
+                                    tool_call = {
+                                        "name": action.get("name", ""),
+                                        "args": action.get("args", {}),
+                                    }
+                                if tool_call:
+                                    content = message.content
+                                    if not isinstance(content, str):
+                                        content = str(content)
+                                    yield AgentEvent(
+                                        type="tool",
+                                        tool_call={
+                                            "name": tool_call.get("name", ""),
+                                            "args": tool_call.get("args", {}),
+                                            "result": content,
+                                            "status": getattr(message, "status", "success"),
+                                        },
+                                    )
+                    continue
+
+                messages = chunk.get("messages") or []
+                if not messages:
+                    continue
+                lastest_message = messages[-1]
+                # 只输出模型回答，避免把用户问题、工具结果回显到页面
+                if isinstance(lastest_message, AIMessage) and not lastest_message.tool_calls:
+                    if isinstance(lastest_message.content, str) and lastest_message.content.strip():
+                        yield AgentEvent(type="text", content=lastest_message.content.strip() + "\n")
+        finally:
+            self._resume_pending_actions = []
 
     def clear_memory(self, thread_id: str) -> None:
         """删除指定会话在后端 checkpointer 中的全部状态。"""
@@ -178,5 +233,7 @@ if __name__ == '__main__':
     for event in agent.execute_stream("看一下这台电脑的系统信息", thread_id="local_test"):
         if event.type == "text":
             print(event.content, end="", flush=True)
+        elif event.type == "tool":
+            print(f"\n[操作] {event.tool_call}")
         else:
             print(f"\n[待确认操作] {event.action_requests}")

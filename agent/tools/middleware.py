@@ -6,6 +6,7 @@ from langchain.tools.tool_node import ToolCallRequest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from utils.logger_handler import logger
+from utils.audit_logger import log_tool_call
 from langgraph.runtime import Runtime
 
 
@@ -17,19 +18,33 @@ def monitor_tool(
         # 执行的函数本身
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
 )-> ToolMessage | Command:          # 工具执行的监控
-    logger.info(f"[tool monitor]工具{request.tool_call['name']}调用成功")
-    logger.info(f"[tool monitor]工具{request.tool_call['name']}传入参数:{request.tool_call['args']}")
+    tool_name = request.tool_call["name"]
+    tool_args = request.tool_call["args"]
+    session_id = ""
+
+    try:
+        config = getattr(request.runtime, "config", None) or {}
+        session_id = config.get("configurable", {}).get("thread_id", "")
+    except Exception:
+        session_id = ""
+
+    logger.info(f"[tool monitor]工具{tool_name}开始执行")
+    logger.info(f"[tool monitor]工具{tool_name}传入参数:{tool_args}")
 
     try:
         result = handler(request)
-        logger.info(f"[tool monitor]工具{request.tool_call['name']}调用成功")
+        logger.info(f"[tool monitor]工具{tool_name}调用成功")
 
-        if request.tool_call['name'] == 'fill_context_for_report':
+        if tool_name == 'fill_context_for_report':
             request.runtime.context["report"] = True
 
+        content = getattr(result, "content", result)
+        status = getattr(result, "status", "success")
+        log_tool_call(session_id, tool_name, tool_args, str(content), str(status))
         return result
     except Exception as e:
-        logger.error(f"工具{request.tool_call['name']}调用失败，原因：{str(e)}")
+        log_tool_call(session_id, tool_name, tool_args, str(e), "error")
+        logger.error(f"工具{tool_name}调用失败，原因：{str(e)}")
         raise e
 
 

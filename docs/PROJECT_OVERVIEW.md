@@ -29,7 +29,7 @@
 | 层 | 关键组件 | 职责 |
 | --- | --- | --- |
 | 表现层 | `app.py` | 收集输入、展示流式输出、渲染高危操作确认卡片 |
-| 编排层 | `ReactAgent` + 7 个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，拦截高危操作 |
+| 编排层 | `ReactAgent` + 8 个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，拦截高危操作 |
 | 工具层 | `os_tools`（13 个）+ `agent_tools`（7 个） | 本机信息、文件读写/搜索、进程、命令、业务查询 |
 | 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 |
 | 模型/存储 | `ChatOpenAI`、记忆后端、本地文件系统 | 推理、上下文持久化、文件读写 |
@@ -44,20 +44,24 @@
 5. 挂起时 `ReactAgent` 产出 `AgentEvent(type="interrupt")`，`app.py` 渲染确认卡片；用户批准后用 `Command(resume=...)` 继续。
 6. 循环直到模型返回最终 `AIMessage`；`app.py` 用 `_render_events` 渲染文本并 `st.rerun()`。
 
-## 5. 电脑操作与人工确认
+## 5. 电脑操作与安全模型
 
-**只读工具**：`get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes`，模型调用后立即执行。
+**工作区域**：`config/agent.yml` 的 `workspace_roots` 决定所有路径操作的边界（默认用户目录 + 项目根）；敏感目录（`.ssh`、`.aws` 等）一律拒绝。读取、搜索、写入、删除、命令 `cwd` 都受限。
 
-**有副作用工具**：`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`，统一在 `CONFIRM_TOOLS` 注册，由 `HumanInTheLoopMiddleware` 拦截。
+**只读工具**：`get_system_info`、`list_directory`、`read_text_file`、`search_files`、`search_text`、`list_processes`，模型调用后立即执行，但仍受工作区限制。
 
-**安全兜底**：路径统一 `_resolve()` 展开为绝对路径；`_is_protected()` 拒绝写入/删除 `C:\Windows`、`C:\Program Files`、`C:\ProgramData`、盘符根；单次读取上限 2 MB；内容搜索最多扫描 5000 个文件、跳过大于 5 MB 的文件。
+**有副作用工具**：`write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`，统一在 `CONFIRM_TOOLS` 注册，由 `HumanInTheLoopMiddleware` 拦截。确认卡片用大白话说明“做什么、目标、风险、影响范围”。
+
+**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；13 条危险命令黑名单；命令中的越界路径拒绝；单轮最多 20 次工具调用。
+
+**操作留痕**：聊天页「本次操作记录」展示每一步的人话解释；`logs/audit_YYYYMMDD.jsonl` 记录结构化审计日志。
 
 **报告场景**：模型调用 `fill_context_for_report` → `monitor_tool` 设置 `runtime.context["report"]=True` → 下一次模型调用由 `report_prompt_switch` 切换到 `report_prompt.txt`。标记只在本次请求内有效。
 
 ## 6. 目录速查
 
 ```text
-agent/        Agent 组装、13 个电脑工具 + 7 个业务工具、6 个中间件
+agent/        Agent 组装、13 个电脑工具 + 7 个业务工具、安全策略与中间件
 model/        Chat 模型工厂
 utils/        配置、路径、日志、提示词加载
 config/       model / agent / prompts
@@ -71,8 +75,11 @@ env_patch/    .pth + sitecustomize.py
 ## 7. 关键约束
 
 - **默认短期记忆**：输入框左侧的记忆按钮可选短期（默认，不存档）/ 本地 JSON 存档 / PostgreSQL；侧边栏管理会话 ID。
-- **消息块级流式**：只输出不带 `tool_calls` 的 `AIMessage` 文本，工具中间消息不显示。
-- **高危操作必须确认**：`CONFIRM_TOOLS` 之外的工具直接执行；确认卡片目前只支持全部批准/全部拒绝。
+- **工作区域是硬边界**：所有文件操作（包括读取）必须在 `workspace_roots` 内；敏感目录默认拒绝；改配置后需重启。
+- **消息块级流式**：只输出不带 `tool_calls` 的 `AIMessage` 文本，工具中间消息不显示；操作记录单独展示。
+- **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；目前只支持全部确认/全部拒绝。
+- **删除默认进回收区**：`.agent_trash` 可手动恢复；`permanent=True` 才永久删除。
+- **命令检查不是沙箱**：黑名单 + 路径提取是尽力而为，确认卡片是最后防线。
 - **无 GUI 自动化**：只有文件系统、进程与命令行能力，不能点击按钮、切换窗口或截图。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
 - **未实现**：鉴权、限流、多租户、自动化测试、文件上传 UI；PII 仅覆盖模型输入/输出，日志未脱敏。

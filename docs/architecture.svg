@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040" role="img" aria-labelledby="archTitle archDesc">
   <title id="archTitle">本地电脑助手 Agent 系统架构总览</title>
-  <desc id="archDesc">分层架构：Streamlit 表现层、LangChain create_agent 编排层、电脑操作工具层、人工确认与提示词服务层、模型与存储层，以及右侧配置与基础设施。</desc>
+  <desc id="archDesc">分层架构：Streamlit 表现层、LangChain create_agent 编排层、电脑操作工具层、安全与提示词服务层、模型与存储层，以及右侧配置与基础设施。</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
@@ -17,7 +17,7 @@
 
   <g font-family="Microsoft YaHei, PingFang SC, Segoe UI, sans-serif">
     <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">本地电脑助手 Agent · 系统架构总览</text>
-    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 文件系统 / psutil · 高危操作人工确认 · Streamlit UI</text>
+    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 文件系统 / psutil · Streamlit UI</text>
 
     <!-- Presentation layer -->
     <rect x="40" y="104" width="1120" height="88" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
@@ -57,8 +57,8 @@
 
     <!-- Tool layer -->
     <rect x="40" y="352" width="1120" height="194" rx="14" fill="#ecfdf5" stroke="#a7f3d0"/>
-    <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（20 个 @tool 注册，模型按需调用）</text>
-    <text x="64" y="530" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认），以及天气、用户、CSV、报告、联网搜索等业务工具</text>
+    <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（20 个 @tool 注册，全部受工作区域限制）</text>
+    <text x="64" y="530" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认）；删除默认进 .agent_trash</text>
 
     <rect x="64" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>
     <text x="76" y="408" font-size="13.5" font-weight="600" fill="#0f172a">get_system_info</text>
@@ -90,19 +90,19 @@
 
     <!-- Service layer -->
     <rect x="40" y="566" width="1120" height="132" rx="14" fill="#fff7ed" stroke="#fed7aa"/>
-    <text x="56" y="588" font-size="12" font-weight="600" fill="#c2410c" letter-spacing="1.2">核心服务层 · SERVICES</text>
+    <text x="56" y="588" font-size="12" font-weight="600" fill="#c2410c" letter-spacing="1.2">安全与提示词服务 · SAFETY / PROMPTS</text>
     <rect x="64" y="600" width="390" height="82" rx="9" fill="#ffffff" stroke="#fb923c" filter="url(#shadow)"/>
     <text x="80" y="624" font-size="14" font-weight="700" fill="#0f172a">HumanInTheLoopMiddleware</text>
     <text x="80" y="646" font-size="10.5" fill="#475569">interrupt_on → interrupt() → Command(resume=...)</text>
-    <text x="80" y="664" font-size="10.5" fill="#64748b">高危工具挂起与恢复</text>
+    <text x="80" y="664" font-size="10.5" fill="#64748b">小白化确认卡片 + 影响范围</text>
     <rect x="478" y="600" width="390" height="82" rx="9" fill="#ffffff" stroke="#fb923c" filter="url(#shadow)"/>
     <text x="494" y="624" font-size="14" font-weight="700" fill="#0f172a">AgentEvent 事件流</text>
-    <text x="494" y="646" font-size="10.5" fill="#475569">text / interrupt 两类事件</text>
-    <text x="494" y="664" font-size="10.5" fill="#64748b">execute_stream / resume_stream</text>
+    <text x="494" y="646" font-size="10.5" fill="#475569">text / interrupt / tool 三类事件</text>
+    <text x="494" y="664" font-size="10.5" fill="#64748b">操作记录 + 审计留痕</text>
     <rect x="892" y="600" width="224" height="82" rx="9" fill="#ffffff" stroke="#fb923c" filter="url(#shadow)"/>
-    <text x="906" y="624" font-size="13.5" font-weight="700" fill="#0f172a">Prompt Loader</text>
-    <text x="906" y="646" font-size="10.5" fill="#475569">utils/prompt_loader.py</text>
-    <text x="906" y="664" font-size="10.5" fill="#64748b">main / report</text>
+    <text x="906" y="624" font-size="13.5" font-weight="700" fill="#0f172a">safety.py 安全策略</text>
+    <text x="906" y="646" font-size="10.5" fill="#475569">工作区 / 敏感目录</text>
+    <text x="906" y="664" font-size="10.5" fill="#64748b">命令拦截 / 回收区 / 备份</text>
 
     <path d="M64 412 H48 V620 H64" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M454 641 H478" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
@@ -120,8 +120,8 @@
     <text x="384" y="806" font-size="10.5" fill="#64748b">只读本机信息</text>
     <rect x="676" y="746" width="280" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
     <text x="690" y="770" font-size="13.5" font-weight="700" fill="#0f172a">本地文件系统</text>
-    <text x="690" y="790" font-size="10.5" fill="#475569">读写 / 搜索 / 命令</text>
-    <text x="690" y="806" font-size="10.5" fill="#64748b">系统目录受保护</text>
+    <text x="690" y="790" font-size="10.5" fill="#475569">工作区域内读写</text>
+    <text x="690" y="806" font-size="10.5" fill="#64748b">.agent_trash / .agent_backup</text>
     <rect x="982" y="746" width="150" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
     <text x="994" y="770" font-size="13.5" font-weight="700" fill="#0f172a">记忆后端</text>
     <text x="994" y="790" font-size="10.5" fill="#475569">短期 / JSON</text>
@@ -131,7 +131,7 @@
     <path d="M560 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M800 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
-    <text x="64" y="852" font-size="10.5" fill="#64748b">高危工具：write_text_file / create_directory / move_path / copy_path / delete_path / run_command / open_path；日志：logs/agent_YYYYMMDD.log</text>
+    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 命令黑名单 · 20 次/轮 · 审计 logs/audit_*.jsonl</text>
     <text x="64" y="870" font-size="10.5" fill="#64748b">会话记忆在输入框左侧按钮切换：短期记忆（默认）/ 本地 JSON / PostgreSQL；侧边栏管理会话 ID。</text>
 
     <!-- Prompt switch (dashed) -->
@@ -143,7 +143,7 @@
 
     <rect x="1210" y="146" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="166" font-size="13" font-weight="700" fill="#0f172a">config/*.yml</text>
-    <text x="1224" y="184" font-size="10.5" fill="#64748b">model / agent / prompts</text>
+    <text x="1224" y="184" font-size="10.5" fill="#64748b">model / agent / prompts（含 workspace_roots）</text>
 
     <rect x="1210" y="218" width="332" height="58" rx="9" fill="#ffffff" stroke="#f9a8d4"/>
     <text x="1224" y="238" font-size="13" font-weight="700" fill="#0f172a">prompts/*.txt</text>
