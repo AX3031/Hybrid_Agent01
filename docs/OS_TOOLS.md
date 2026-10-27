@@ -30,7 +30,7 @@
 | 11. 预算与急停 | 步数/时长/费用超限或按下急停后不再发起新动作 | 侧边栏状态 + `STOP` 文件 |
 | 12. 第二主体 PIN | 命令、永久删除、桌面输入等 R2/R3 动作需要口令 | 确认卡片上的口令输入框 |
 
-事后你还能查两本账：聊天页面的「操作记录」，以及 `logs/audit_YYYYMMDD.jsonl` 审计日志。
+事后你还能查三本账：聊天页面的「操作记录」、`logs/audit_YYYYMMDD.jsonl` 审计日志，以及侧边栏「批次与回滚」的任务批次回放。
 
 ---
 
@@ -161,15 +161,19 @@ workspace_roots:
 
 这些目录通常存放密钥和云服务凭据。可以在 `config/agent.yml` 的 `sensitive_dirs` 里增删（这一项目前只能改配置文件，改完重启）。
 
+审批口令目录（默认 `%PROGRAMDATA%\OSGuiAgent\approval`）不在 `sensitive_dirs` 里，但 `guard_path()` 与 `check_command()` 会额外拒绝；它也不需要你手动配置。
+
 ---
 
-## 3. 两种操作
+## 3. 操作类型与守卫层
 
 | 类型 | 包括什么 | 它的行为 | 你需要做什么 |
 | --- | --- | --- | --- |
 | **只读（直接执行）** | 列目录、读文件、按名字搜、按内容搜；桌面的看屏幕尺寸、屏幕找图、等待 | 直接执行，不打扰你 | 无 |
 | **敏感读取（需确认）** | 看系统信息、看进程列表；桌面的截图、读剪贴板、列应用 | 先停下，弹出确认卡片 | 点「我确认，执行」或「不要执行」 |
-| **修改类（有副作用）** | 写文件、建目录、移动、复制、删除、执行命令、打开程序；桌面的鼠标点击/拖拽/滚动、键盘输入、写剪贴板、启停应用 | 先停下，弹出确认卡片 | 点「我确认，执行」或「不要执行」 |
+| **修改类（有副作用）** | 写文件、建目录、移动、复制、删除、执行命令、打开程序；桌面的鼠标点击/拖拽/滚动、键盘输入、写剪贴板、启停应用 | 先停下，弹出确认卡片；R2/R3 还要审批口令 | R1 点「我确认」；R2/R3 还要输入 PIN；或「不要执行」 |
+
+守卫层会在上述分类之前再检查：**只读模式、任务卡范围、预算/急停、R2/R3 审批凭证**。没有任务卡时，修改类动作会被拒绝（只读问答不受影响）。
 
 查看类也会被记录，只是不需要你点头。桌面控制是一个工具（`computer_use`）里的 18 个动作，确认粒度按动作而不是按工具。
 
@@ -521,24 +525,33 @@ workspace_roots:
 │    需要注意：文件会移到工作区的 .agent_trash      │
 │    回收目录，可以手动恢复。                       │
 │                                                  │
-│ 2. 执行系统命令                                   │
+│ 2. 执行系统命令（可逆性 R2）                       │
 │    运行命令「ipconfig」。                         │
 │    ipconfig                                      │
 │    需要注意：命令会以你当前的用户权限执行，       │
 │    可能修改文件、网络或系统设置。                 │
 │                                                  │
+│ 审批口令：[••••••]  ← R2/R3 才有                 │
 │ [ 我确认，执行 ]        [ 不要执行 ]              │
 └──────────────────────────────────────────────────┘
 ```
 
 **每一项包含四层信息：**
 
-1. **标题**：这个操作叫什么（移到回收区、执行系统命令）；
+1. **标题**：这个操作叫什么（移到回收区、执行系统命令），标题里还会标出可逆性等级（R0–R3）；
 2. **大白话说明**：它具体要做什么；
 3. **目标**：操作的完整路径或命令；
 4. **风险说明**：最坏情况是什么，能不能恢复。
 
+确认卡片顶部还会显示**批次号**；一批改动可以在侧边栏整批回滚。
+
 删除操作还会额外显示**影响范围**（多少个文件、总共多大）。
+
+**R2/R3 动作还要审批口令（PIN）**：
+
+- 未设置 PIN 时，批准按钮是灰色的；先运行 `uv run python scripts/setup_approval_pin.py`；
+- PIN 只在本机校验，不进入提示词、对话历史或审计；
+- 同一批待确认动作共用一个 PIN；输入错误不会执行。
 
 **当前限制：**
 
@@ -580,11 +593,12 @@ workspace_roots:
 - 最新一轮的操作记录默认展开，历史记录折叠显示；
 - 状态显示「未完成」时，可能是工具报错，也可能是「结果校验」没通过（详见 8.9）；
 - 从记忆后端恢复的旧会话没有操作记录，只显示文字；
-- 完整记录以 `logs/audit_YYYYMMDD.jsonl` 为准。
+- 完整记录以 `logs/audit_YYYYMMDD.jsonl` 为准；审计里还带 `batch_id / step_no / reversibility / approver`。
+- 想撤销整批改动，用侧边栏「批次与回滚」，不要在操作记录里逐个点。
 
 ---
 
-## 8. 九道自动保险
+## 8. 自动保险与守卫层
 
 ### 8.1 回收区
 
@@ -872,12 +886,14 @@ hitl_middleware = HumanInTheLoopMiddleware(
 
 链路：
 
+在 `interrupt()` 之前，`guard_preflight` 已检查停止/只读/任务卡/预算；被拒绝的调用不会进入确认卡片。
+
 1. `after_model` 命中 `interrupt_on` → `interrupt()` 挂起；
 2. `updates` 流产出 `__interrupt__`；
-3. `ReactAgent._stream` 转成 `AgentEvent(type="interrupt")`；
-4. `app.py` 渲染小白化卡片；
-5. 用户点击后调用 `resume_stream(decisions, pending_actions=...)`；
-6. `Command(resume=...)` 恢复；批准则执行，拒绝则返回 error `ToolMessage`。
+3. `ReactAgent._stream` 转成 `AgentEvent(type="interrupt")`，带 `batch_id` 与任务卡快照；
+4. `app.py` 渲染小白化卡片；R2/R3 还要校验 PIN；
+5. 用户点击后调用 `resume_stream(decisions, pending_actions=..., batch_id=..., task_card=...)`；
+6. `Command(resume=...)` 恢复；`guard_execute` 再检查预算/PIN 凭证并计步，批准则执行，拒绝则返回 error `ToolMessage`。
 
 `pending_actions` 用于把恢复后的 `ToolMessage` 与之前被挂起的操作配对，保证操作记录完整。
 
@@ -888,7 +904,7 @@ hitl_middleware = HumanInTheLoopMiddleware(
 | type | 字段 | 说明 |
 | --- | --- | --- |
 | `text` | `content` | 模型输出文本 |
-| `interrupt` | `action_requests` | 待确认操作 |
+| `interrupt` | `action_requests`、`batch_id`、`task_card` | 待确认操作 + 批次号 + 任务卡快照 |
 | `tool` | `tool_call` | 已执行工具的名称、参数、结果、状态 |
 
 `_stream` 同时订阅 `values` 和 `updates`：
@@ -928,11 +944,12 @@ hitl_middleware = HumanInTheLoopMiddleware(
 1. 在 `os_tools.py` 用 `@tool(description=...)` 定义函数，返回 `str`。
 2. 接路径的参数先调用 `guard_path()`，写操作传 `for_write=True`。
 3. 只读工具直接注册到 `react_agent.py` 的 `tools`。
-4. 有副作用的工具同时加入 `CONFIRM_TOOLS`。
-5. 在 `safety.py` 的 `describe_operation` / `operation_risk` / `operation_target` 补上人话模板。
-6. 更新 `prompts/main_prompt.txt` 的工具清单。
-7. 同步本文 11.1、README 能力表、ARCHITECTURE 第 7 节、architecture.svg。
-8. 桌面类动作加到 `agent/tools/computer_use.py`：在 `_ACTION_PARAMS` / `_REQUIRED_PARAMS` / `_tool_instance` / `_prepare_arguments` 登记，并判断是否加入 `READ_ONLY_ACTIONS`；同时在 `safety.py` 的 `_describe_computer_use` / `_computer_use_risk` / `_computer_use_target` 补人话文案。
+4. 有副作用的工具同时加入 `CONFIRM_TOOLS`；并在 `agent/guard/policy.py` 登记动作类别与 `reversibility_of`（R0–R3）。
+5. 写成功后调用 `agent/guard/journal.py` 的 `record_*`，否则不能整批回滚。
+6. 在 `safety.py` 的 `describe_operation` / `operation_risk` / `operation_target` 补上人话模板。
+7. 更新 `prompts/main_prompt.txt` 的工具清单。
+8. 同步本文 11.1、README 能力表、ARCHITECTURE 第 7 节、`docs/small-business-p0/`、architecture.svg。
+9. 桌面类动作加到 `agent/tools/computer_use.py`：在 `_ACTION_PARAMS` / `_REQUIRED_PARAMS` / `_tool_instance` / `_prepare_arguments` 登记，并判断是否加入 `READ_ONLY_ACTIONS`；同时在 `safety.py` 的 `_describe_computer_use` / `_computer_use_risk` / `_computer_use_target` 补人话文案。
 
 ### 11.8 测试
 
@@ -951,9 +968,10 @@ uv run python scripts/verify_small_business.py
 
 ### 11.9 实现边界
 
-- 工作区限制基于路径字符串比较，不防符号链接/junction 逃逸（`resolve()` 已尽量解析）。
+- 工作区限制基于 `realpath` 后的路径前缀比较，仍不是沙箱，不防同用户进程绕过或 junction/符号链接构造的竞态。
 - 命令检查是黑名单 + 正则，不是沙箱；精心构造的命令仍可能绕过。
-- 审计日志只记录实际执行的工具，不记录被 HITL 拒绝的调用。
+- 审计会记录实际执行、被守卫层拒绝、等待确认（`interrupt`）和 HITL 拒绝的结果；未进入工具节点的调用不会出现。
+- `run_command` 的内部文件副作用不进入批次，不能整批回滚；`computer_use` / `open_path` 的应用内状态也不可回滚。
 - 操作记录依赖 `updates` 流；自定义中间件如果吞掉 ToolMessage，记录会缺失。
 - 历史会话从 checkpointer 恢复时没有操作记录（checkpointer 只存 messages）。
 - 界面保存使用 `yaml.safe_dump` 重写 `config/agent.yml`，原有注释会丢失。

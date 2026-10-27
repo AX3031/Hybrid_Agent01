@@ -40,7 +40,7 @@
 
 1. `app.py` 接收输入；若启用了任务卡/只读/急停，先读当前设置。
 2. `ReactAgent.execute_stream(query, thread_id, task_card)` 先取单任务文件锁，再创建任务运行时（批次号、预算、任务卡快照），然后用 `resilience.repair_thread_state` 修复上次中断留下的悬空工具调用。
-3. `create_agent` 构建 LangGraph；中间件顺序：`guard_model`（预算/急停短路）→ 模型降级/PII → 错误兜底/重试 → `monitor_tool`（审计）→ `guard_preflight`（只读/任务卡/预算）→ HITL → `guard_execute`（确认后计步）→ 工具。
+3. `create_agent` 构建 LangGraph；中间件顺序：模型降级 → `guard_model`（预算/急停短路）→ PII → 错误兜底/重试 → `monitor_tool`（审计）→ `guard_preflight`（只读/任务卡/预算）→ HITL → `guard_execute`（确认后计步）→ 工具。
 4. 模型返回 `tool_calls`：只读工具直接执行；工具异常先按规则重试，重试耗尽后转成 `status=error` 的 `ToolMessage`；文件类操作在写审计前做结果校验；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；R2/R3 动作在确认卡片上还要求输入审批口令（PIN）。
 5. 挂起时 `ReactAgent` 产出 `AgentEvent(type="interrupt")`（带批次号与任务卡快照），`app.py` 渲染确认卡片；用户批准后用 `Command(resume=...)` 继续，恢复时沿用同一批次与预算。
 6. 循环直到模型返回最终 `AIMessage`；`app.py` 用 `_render_events` 渲染文本并 `st.rerun()`。每次写操作都记入批次，可在侧边栏「批次与回滚」整批撤销。
@@ -78,7 +78,7 @@ prompts/      main / report
 data/         external/records.csv
 memorys/      记忆方式工厂 + 短期/JSON/PostgreSQL checkpointer
 tests/        unittest 用例（假模型，不联网）
-docs/         架构文档、改造复盘、电脑操作说明与 SVG
+docs/         架构文档、改造复盘、电脑操作说明、small-business-p0 与 SVG
 env_patch/    .pth + sitecustomize.py
 scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py（离线验证+证据）+ verify_small_business.py（P0 验证+证据）+ setup_approval_pin.py
 .agent_state/ 守卫层状态：批次/会话快照/锁/急停（git 忽略）
@@ -91,8 +91,9 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **工作区域是硬边界**：所有文件操作（包括读取）必须在 `workspace_roots` 内；敏感目录默认拒绝；可在输入框左侧「工作区域」按钮修改，保存后立即生效。
 - **消息块级流式**：只输出不带 `tool_calls` 的 `AIMessage` 文本，工具中间消息不显示；操作记录单独展示。
 - **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；R2/R3 动作还需输入审批口令（PIN）；未设置 PIN 时批准按钮禁用。
-- **可整批回滚**：一次任务一个批次号；写/移动/复制/删除/建目录/追加都记入 `.agent_state/batches/`，可在侧边栏一键撤销整批；永久删除会明确报“不可逆”。
+- **可整批回滚**：一次任务一个批次号；写/移动/复制/删除/建目录/追加都记入 `.agent_state/batches/`，可在侧边栏一键撤销整批；永久删除会明确报“不可逆”。`run_command` 内部修改的文件、`computer_use` / `open_path` 的应用内状态不在回滚范围。
 - **预算与急停是硬约束**：步数/时长/费用超限时 `guard_model` 直接短路，不再调用模型；急停写 `STOP` 文件，独立于模型。
+- **任务卡是写操作的前提**：没有启用任务卡时，写文件/命令/打开程序/桌面输入会被守卫层拒绝；只读问答、搜索、截图不需要任务卡。
 - **单任务锁**：同一时刻只允许一个任务操作本机；等待人工确认的间隙会释放锁。
 - **删除默认进回收区**：`.agent_trash` 可手动恢复；`permanent=True` 才永久删除。
 - **命令检查不是沙箱**：黑名单 + 路径提取是尽力而为，确认卡片是最后防线。
@@ -101,7 +102,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **桌面控制的应用边界**：`app_open` 不启动终端/脚本宿主/注册表/磁盘工具（避免绕过 `run_command`）；`app_close` 不关闭系统关键进程。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
 - **Windows 集成终端已放宽执行策略**：`.vscode/settings.json` 给终端的 PowerShell 加了 `-ExecutionPolicy Bypass`（仅该终端进程、不写注册表），用于让自动执行的 `Activate.ps1` 跟 Windows 默认的 `Restricted` 共存；它不是安全防线，项目边界仍在 `safety.py` + HITL 确认 + 审计日志。
-- **未实现**：鉴权、限流、多租户、自动化测试、文件上传 UI；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏。
+- **未实现**：鉴权、限流、多租户、文件上传 UI；已有 47 条离线用例（含 P0 守卫层 27 条）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏。
 
 ## 8. 按问题找位置
 
@@ -112,9 +113,10 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
 | 任务卡/批次回滚/预算急停/PIN 怎么实现？ | [小企业版 P0 进度备忘录](small-business-p0/00-进度备忘录.md) + 01–08 入门讲解 |
+| P0 怎么验收、证据在哪？ | [08-交付复盘与验收清单](small-business-p0/08-交付复盘与验收清单.md) + `docs/small-business-p0/evidence/` |
 | 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
 | 工具失败/重试/结果校验怎么工作？ | [agent-resilience/01-入门讲解-失败重试与结果验证.md](agent-resilience/01-入门讲解-失败重试与结果验证.md) |
-| 怎么验证改动没退化？ | [agent-resilience/02-验证与交付复盘.md](agent-resilience/02-验证与交付复盘.md) + `scripts/verify_agent_resilience.py` |
+| 怎么验证改动没退化？ | [agent-resilience/02-验证与交付复盘.md](agent-resilience/02-验证与交付复盘.md) + `scripts/verify_agent_resilience.py`；P0 用 [08-交付复盘](small-business-p0/08-交付复盘与验收清单.md) + `scripts/verify_small_business.py` |
 | 长任务改造的方法论？ | [06-长期改造经验与方法论.md](06-长期改造经验与方法论.md) |
 | 桌面控制（截图/键鼠/应用）怎么用？ | [OS_TOOLS.md](OS_TOOLS.md) 第 5.8–5.12 节 + [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统与安全模型) |
 | 安全能力、威胁模型、技术债与改进路线？ | [SECURITY_REPORT.md](SECURITY_REPORT.md) |

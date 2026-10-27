@@ -71,9 +71,10 @@
 - `agent/tools/middleware.py`：`monitor_tool` 记录批次/步数/可逆性/审批人；工具挂起等待确认时记 `status=interrupt`，不再把 `Command` 对象当成工具结果。
 - `agent/tools/safety.py`：`backup_before_overwrite` 返回 `（说明, 备份路径）`；`guard_path` 拒绝审批目录与 `.agent_state`/`.agent_backup`/`.agent_trash` 写入；`check_command` 拒绝引用这些目录；路径比较改为 `realpath`，兼容 Windows 8.3 短路径。
 - `config/agent.yml`：新增 `read_only`、`task_defaults`、`model_prices`。
+- `.gitignore`：新增 `.agent_state/`（批次/会话快照/锁/STOP）与 `_agent_verify_*/`；`tests/test_tool_verification.py` 用 `AGENT_STATE_DIR` 隔离批次日志，避免测试污染项目状态。
 - `prompts/main_prompt.txt`：新增只读、任务卡、预算、批次回滚、未确认、急停六类规则（第 19–24 条）；单轮 20 次改为任务预算。
 - `app.py`：侧边栏新增「安全开关」「任务卡」「批次与回滚」；确认卡片显示可逆性等级，R2/R3 要求 PIN；新会话清除任务卡；只读模式顶部提示。
-- 文档同步：`README.md`、`docs/PROJECT_OVERVIEW.md`、`docs/ARCHITECTURE.md`、`docs/OS_TOOLS.md`、`docs/architecture.svg`、`AGENTS.md`、`docs/small-business-p0/`。
+- 文档同步：`README.md`、`docs/PROJECT_OVERVIEW.md`、`docs/ARCHITECTURE.md`、`docs/OS_TOOLS.md`、`docs/SECURITY_REPORT.md`、`docs/AGENT_SECURITY_PLAYBOOK.md`、`docs/OMNIPILOT_INTEGRATION_REPORT.md`、`docs/agent-resilience/01–02`、`docs/architecture.svg`、`AGENTS.md`、`docs/small-business-p0/`。
 
 - （历史）中间件从 8 个增至 10 个；后续守卫层改造又增加 `guard_model` / `guard_preflight` / `guard_execute` / `track_model_usage`，当前顺序见上方最新 Changed 条目。
 - `ReactAgent.execute_stream` 在提交新消息前先调用 `resilience.repair_thread_state`，自动修复上次中断留下的悬空工具调用。

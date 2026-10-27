@@ -58,10 +58,10 @@
 | --- | --- |
 | 业务形态 | 本地电脑助手：查看系统与进程、浏览/搜索/读写文件、执行命令、截屏并控制鼠标键盘/应用，并保留原有业务查询与报告能力 |
 | 技术形态 | 单进程 Streamlit 应用 + LangGraph Agent + 本地文件系统/psutil + OmniPilot 工具层 |
-| 适用范围 | 原型验证、LangChain Agent 学习、个人效率工具 |
+| 适用范围 | 小企业单机受控原型、LangChain Agent 学习、个人效率工具 |
 | 非目标 | 生产级多租户、鉴权、计费、高可用；当前均未实现 |
 
-**一句话架构**：Streamlit 收集指令 → `ReactAgent` 调用 `create_agent` 构建 LangGraph → 模型在中间件约束下循环调用工具 → 只读工具直接执行、高危工具等待用户确认 → 模型生成答案 → 按消息块流式返回页面。
+**一句话架构**：Streamlit 收集指令 → `ReactAgent` 取单任务锁并创建任务运行时 → `create_agent` 构建 LangGraph → 守卫层在模型/工具调用前检查任务卡、只读、预算与急停 → 模型在中间件约束下循环调用工具 → 只读工具直接执行、高危工具等待确认（R2/R3 还要 PIN）→ 写操作记入批次 → 模型生成答案 → 按消息块流式返回页面。
 
 ![系统架构总览](docs/architecture.svg)
 
@@ -74,20 +74,20 @@
 | 多轮工具调用（ReAct 循环） | ✅ 已接入 | `agent/react_agent.py` → `create_agent` |
 | 工具异常不中断循环 | ✅ 已接入 | `agent/tools/middleware.py` → `tool_error_middleware`（异常转 `status=error` 的 ToolMessage） |
 | 幂等工具有限重试 | ✅ 已接入 | `agent/tools/middleware.py` → `tool_retry_middleware`（仅只读工具；超时/断连/429/5xx） |
-| 文件操作结果校验 | ✅ 已接入 | `agent/tools/verification.py` → 写/建目录/移动/复制/删除的后置核对；`run_command` 校验退出码；桌面动作标“未确认” |
+| 文件操作结果校验 | ✅ 已接入 | `agent/tools/verification.py` → 写/建目录/移动/复制/删除的后置核对（复制含大小/SHA-256）；`run_command` 校验退出码；桌面动作标“未确认” |
 | 会话自愈（悬空 tool_call） | ✅ 已接入 | `agent/resilience.py` + `ReactAgent.execute_stream` |
 | 系统信息 / 磁盘 / 进程查看 | ✅ 已接入（需确认） | `agent/tools/os_tools.py` → `get_system_info`、`list_processes` |
 | 目录浏览 / 文本读取 / 文件搜索 | ✅ 已接入 | `list_directory`、`read_text_file`、`search_files`、`search_text` |
 | 文件写入 / 移动 / 复制 / 删除 | ✅ 已接入（需确认） | `write_text_file`、`move_path`、`copy_path`、`delete_path` |
 | 系统命令执行 | ✅ 已接入（需确认） | `run_command` |
-| 高危操作人工确认 | ✅ 已接入 | `HumanInTheLoopMiddleware` + `app.py` 确认卡片 |
+| 高危操作人工确认 | ✅ 已接入 | `HumanInTheLoopMiddleware` + `app.py` 确认卡片；R2/R3 还要 PIN |
 | 工作区域限制（读写都受限） | ✅ 已接入 | `agent/tools/safety.py` → `guard_path`；配置 `config/agent.yml` |
 | 敏感目录拦截 | ✅ 已接入 | `.ssh` / `.gnupg` / `.aws` 等默认拒绝 |
 | 聊天页操作记录 | ✅ 已接入 | `ReactAgent` 的 `tool` 事件 + `app.py` 的 `_render_operations` |
-| 结构化审计日志 | ✅ 已接入 | `utils/audit_logger.py` → `logs/audit_YYYYMMDD.jsonl` |
+| 结构化审计日志 | ✅ 已接入 | `utils/audit_logger.py` → `logs/audit_YYYYMMDD.jsonl`；含任务/批次/审批/可逆性字段 |
 | 删除回收区 / 覆盖备份 | ✅ 已接入 | `.agent_trash` / `.agent_backup` |
 | 危险命令与可执行文件拦截 | ✅ 已接入 | `safety.py` 的 `check_command` / `check_write_suffix` |
-| 单轮工具调用上限 | ✅ 已接入 | 任务卡预算（默认 30 步 / 10 分钟 / 2 元）+ `ToolCallLimitMiddleware` 100 步硬上限 |
+| 任务预算与硬上限 | ✅ 已接入 | 任务卡预算（默认 30 步 / 10 分钟 / 2 元）+ `ToolCallLimitMiddleware` 100 步硬上限 |
 | 任务卡（目标/判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；缺字段不允许启动 |
 | 只读总开关 | ✅ 已接入 | `config/agent.yml` 的 `read_only` + 侧边栏开关 + `agent/guard/policy.py` |
 | 批次号 + 整批回滚 | ✅ 已接入 | `agent/guard/journal.py` + `.agent_state/batches/` + 侧边栏「批次与回滚」 |
@@ -199,6 +199,8 @@ python -c "import sys; print(sys.executable)"   # 应输出 <项目根>\.venv\Sc
 | `OMNIPILOT_HOME` | `agent/tools/computer_use.py` → OmniPilot 工具层 | 否；不设置时默认写到项目 `logs/omnipilot`（截图/会话目录） |
 | `BASE_URL_DEEPSEEK`、`API_KEY_DEEPSEEK`、`API_HOST_DASHSCOPE` | 当前代码未使用 | 否，预留 |
 
+守卫层还支持三个环境变量（可写进系统环境或临时会话）：`AGENT_STATE_DIR`（状态目录）、`AGENT_APPROVAL_DIR`（审批目录）、`AGENT_READ_ONLY=1`（只读演练）。**PIN 不要写进 `.env`**，用设置脚本写入审批目录。
+
 ### 4.4 启动对话界面
 
 ```powershell
@@ -209,6 +211,12 @@ uv run streamlit run app.py
 
 - **记忆按钮**：切换会话记忆方式（下方详述）。
 - **工作区域按钮**：查看和修改允许操作的目录，每行一个绝对路径，点「保存并应用」后立即生效，并写回 `config/agent.yml`。
+
+左侧栏还提供：
+
+- **安全开关**：只读模式、急停/解除急停、审批口令状态；
+- **任务卡**：填写目标、成功判据、输入/输出范围、允许/禁止动作、预算与有效期；没有任务卡时写操作会被拒绝；
+- **批次与回滚**：查看最近任务的回放，勾选确认后一键撤销整批文件改动。
 
 记忆方式的说明：
 
@@ -228,6 +236,7 @@ uv run -m utils.logger_handler   # 验证日志输出
 uv run python scripts/apply_env_patch.py --check  # 验证虚拟环境补丁是否已生效
 .venv\Scripts\python.exe scripts\verify_agent_resilience.py  # 跑离线验证用例并生成证据 JSON
 uv run python scripts/verify_small_business.py  # 跑小企业版 P0 验证并生成证据 JSON
+uv run python scripts/setup_approval_pin.py          # 设置审批口令（PIN，交互式）
 uv run python scripts/setup_approval_pin.py --status  # 查看审批口令是否已设置
 ```
 
@@ -266,7 +275,7 @@ project2/
 │       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
 │       ├── verification.py     # ✅ 文件操作结果的后置校验
 │       ├── agent_tools.py      # ✅ 7 个业务工具
-│       └── middleware.py       # ✅ 8 个中间件（含错误兜底、有限重试）
+│       └── middleware.py       # ✅ 工具监控/审计/错误兜底/有限重试（守卫层在 guard/）
 ├── model/
 │   └── factory.py              # ✅ Chat 模型工厂
 ├── memorys/
@@ -293,7 +302,7 @@ project2/
 │   └── setup_approval_pin.py       # ⚙️ 设置/查看审批口令（PIN）
 ├── .agent_state/              # ⚙️ 守卫层状态：批次/会话快照/锁/急停（git 忽略）
 ├── tests/                      # ✅ unittest 用例（假模型，不联网）
-└── docs/                       # 速览、架构文档、功能说明、改造复盘与 SVG 图
+└── docs/                       # 速览、架构文档、电脑操作说明、small-business-p0 与 SVG 图
 ```
 
 图例：✅ 主链路 / 🧪 示例或预留 / ⚙️ 基础设施。
@@ -304,17 +313,18 @@ project2/
 
 约 30 分钟，按依赖顺序阅读：
 
-1. `app.py`：看 UI 如何创建 Agent、如何接收流式输出。
-2. `agent/react_agent.py`：看 `create_agent` 的模型、工具、中间件三要素。
-3. `agent/tools/safety.py`：看工作区域、命令拦截、备份、回收区和小白解释。
-4. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
-5. `agent/tools/computer_use.py`：看单个工具如何按 `action` 分发到 OmniPilot 的 screen/gui/clipboard/apps，以及哪些动作直接执行、哪些需要确认。
-6. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
-7. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏、模型降级，以及错误兜底与有限重试。
-8. `agent/resilience.py` + `agent/tools/verification.py`：看中断后如何自愈、工具结果如何被确定性核对。
-9. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
-10. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
-11. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
+1. `app.py`：看 UI 如何创建 Agent、如何接收流式输出，以及安全开关/任务卡/批次回滚入口。
+2. `agent/react_agent.py`：看 `create_agent` 的模型、工具、中间件三要素，以及单任务锁和任务运行时。
+3. `agent/guard/`：看任务卡、只读、R0–R3 分级、批次回滚、预算急停、单任务锁与 PIN。
+4. `agent/tools/safety.py`：看工作区域、命令拦截、备份、回收区和小白解释。
+5. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
+6. `agent/tools/computer_use.py`：看单个工具如何按 `action` 分发到 OmniPilot 的 screen/gui/clipboard/apps，以及哪些动作直接执行、哪些需要确认。
+7. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
+8. `agent/tools/middleware.py`：看工具监控、审计字段、模型前日志、动态提示词（追加任务卡）、PII 脱敏、模型降级、错误兜底与有限重试。
+9. `agent/resilience.py` + `agent/tools/verification.py`：看中断后如何自愈、工具结果如何被确定性核对（含退出码与复制哈希）。
+10. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认、哪些还要 PIN。
+11. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
+12. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
 
 更完整的调用时序、配置表、扩展步骤和已知问题见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -338,11 +348,13 @@ project2/
 | 调整自动重试范围/条件 | `agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` 与 `_should_retry_tool_error` |
 | 调整结果校验范围 | `agent/tools/verification.py` 的 `_CHECKERS` 与 `_SUCCESS_PREFIXES` |
 | 只读模式 | 侧边栏「安全开关」，或 `config/agent.yml` 的 `read_only`；临时演练用 `AGENT_READ_ONLY=1` |
+| 任务卡 | 侧边栏「任务卡」；目标/成功判据/范围/预算，缺字段不能启用 |
 | 任务预算默认值 | `config/agent.yml` 的 `task_defaults`（步数/分钟/费用） |
 | 模型单价（费用估算） | `config/agent.yml` 的 `model_prices` |
 | 急停 / 解除急停 | 侧边栏「安全开关」，或手动创建/删除 `.agent_state/STOP` |
 | 设置审批口令（PIN） | `uv run python scripts/setup_approval_pin.py`（只存哈希） |
 | 批次回滚 | 侧边栏「批次与回滚」；状态文件在 `.agent_state/batches/` |
+| 守卫层状态目录 / 审批目录 | 环境变量 `AGENT_STATE_DIR` / `AGENT_APPROVAL_DIR`；默认见 `.agent_state/` 与 `%PROGRAMDATA%\OSGuiAgent\approval` |
 | 新增场景 | 参考报告场景：工具 + 中间件标记 + 动态提示词 + prompt 文件 |
 | 切换会话记忆方式 | Streamlit **输入框左侧的记忆按钮**（点击弹出列表）：短期记忆（默认，不存档记忆）/ 本地记忆（以JSON格式本地存档）/ PostgreSQL（存档入数据库，需配置） |
 | 管理会话 ID / 新建会话 / 清空记忆 | Streamlit 左侧栏「会话管理」（后续可在此列出会话记录） |
@@ -372,7 +384,9 @@ project2/
 13. **批次日志不是 WORM**：`.agent_state/` 对 Agent 工具禁写，但同用户的其他程序仍可改；只能防误操作，不防蓄意篡改。
 14. **永久删除不可回滚**：批次回滚会明确报“不可逆”；P0 建议只用回收区删除。
 15. **费用上限依赖 usage_metadata**：供应商不返回 usage 时只记录调用次数，不估算费用；此时依赖步数/时长上限。
-16. **单任务锁是单机文件锁**：只对同一台机器、同一个状态目录生效；不是分布式锁。
+16. **单任务锁是单机文件锁**：只对同一台机器、同一个状态目录生效；不是分布式锁；等待人工确认的间隙会释放锁，另一个任务理论上可插队。
+17. **批次回滚只覆盖文件类写操作**：`run_command` 内部修改的文件、`open_path` 和 `computer_use` 的应用内状态不在回滚范围。
+18. **没有任务卡时修改本机的工具会被拒绝**：这是 P0-1 的强制行为；只读问答、搜索、截图不受影响。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 
@@ -393,7 +407,7 @@ project2/
 | [docs/small-business-p0/01-批次号与整批回滚.md](docs/small-business-p0/01-批次号与整批回滚.md) | 批次号、批次日志、整批回滚与边界 |
 | [docs/small-business-p0/02-预算与急停.md](docs/small-business-p0/02-预算与急停.md) | 步数/时长/费用预算、急停、代码短路 |
 | [docs/small-business-p0/03-任务卡与只读模式.md](docs/small-business-p0/03-任务卡与只读模式.md) | 任务卡字段、范围强制执行、只读总开关 |
-| [docs/small-business-p0/04-确定性验证补齐.md](docs/small-business-p0/04-确定性验证补齐.md) | 退出码校验、未确认标记、假成功防线 |
+| [docs/small-business-p0/04-确定性验证补齐.md](docs/small-business-p0/04-确定性验证补齐.md) | 退出码/复制哈希校验、未确认标记、假成功防线 |
 | [docs/small-business-p0/05-审计与回放.md](docs/small-business-p0/05-审计与回放.md) | 审计三问、字段、事件、回放视图 |
 | [docs/small-business-p0/06-单任务锁.md](docs/small-business-p0/06-单任务锁.md) | 单任务锁、过期清理、确认间隙取舍 |
 | [docs/small-business-p0/07-第二主体审批口令.md](docs/small-business-p0/07-第二主体审批口令.md) | PIN 哈希、签名凭证、审批流程、威胁边界 |
@@ -410,6 +424,8 @@ project2/
 ## 10. 安全与协作约定
 
 - `.env` 已加入 `.gitignore`；不要把 API Key、数据库连接串写进代码、提示词、日志或文档。
+- `.agent_state/` 是运行时状态（批次、会话快照、锁、急停），已忽略；不要提交、不要当源码分发。
+- **审批口令（PIN）不要写进 `.env`、README、提示词、聊天记录或 Git**；只通过 `scripts/setup_approval_pin.py` 设置，目录默认在 `%PROGRAMDATA%\OSGuiAgent\approval`。
 - `logs/` 会记录用户输入与工具参数，接入真实业务后需考虑脱敏与保留周期；目前仅图片 base64、桌面文字输入与剪贴板内容做了定向脱敏。
 - `computer_use` 会把截图写到 `logs/omnipilot/screenshots/`，并把图片作为工具结果发给模型；截图可能包含密码、聊天记录等隐私内容，确认前请看清楚。
 - 不要用 `computer_use` 输入密码/验证码，也不要在无人值守时自动代点确认；终端与脚本宿主已被 `app_open` 拒绝，需要命令时走 `run_command`。
@@ -417,4 +433,4 @@ project2/
 - 编码助手请先读 `docs/PROJECT_OVERVIEW.md`，并按 `AGENTS.md` 的阅读约定执行，避免整份加载长文档。
 - 高危工具的参数会显示在确认卡片上；不要把密钥写入命令参数。
 - `.vscode/settings.json` 会随仓库改变协作者的 IDE 行为（当前包含集成终端的 `-ExecutionPolicy Bypass`）；改它要在评审里说明缘由，也不要往里面放机器级策略或个人偏好。
-- 提交前建议检查：`git status` 中是否误带 `logs/`、`.env`、`__pycache__/`。
+- 提交前建议检查：`git status` 中是否误带 `logs/`、`.env`、`.agent_state/`、`__pycache__/`。
