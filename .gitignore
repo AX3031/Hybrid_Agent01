@@ -28,6 +28,9 @@ logs/
 # 会话记忆（含用户内容）
 memorys/chat_history/
 
+# 任务技能库（含用户保存的步骤与截图，保留在本机）
+data/task_skills/
+
 # 回收区、备份与守卫层状态（批次/会话快照/锁/急停）
 .agent_trash/
 .agent_backup/

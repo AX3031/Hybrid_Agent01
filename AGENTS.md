@@ -11,7 +11,7 @@
 5. 需要 Agent 安全设计的通用经验、反模式和落地路线时，读 `docs/AGENT_SECURITY_PLAYBOOK.md`。
 6. 需要了解 OmniPilot 桌面控制的接入背景、用法、限制与风险时，读 `docs/OMNIPILOT_INTEGRATION_REPORT.md`（小白版报告）。
 7. 要改工具失败/重试/结果校验/会话自愈，或要跑回归验证时，读 `docs/agent-resilience/00-进度备忘录.md` + `01-入门讲解-失败重试与结果验证.md` + `02-验证与交付复盘.md`；回归命令是 `python scripts/verify_agent_resilience.py`。
-8. 要改任务卡/只读/批次回滚/预算急停/审计回放/单任务锁/第二主体/机器判据，或要跑 P0 验收时，先读 `docs/small-business-p0/00-进度备忘录.md`，再按主题读 `01`–`09`；回归命令是 `python scripts/verify_small_business.py`。
+8. 要改任务卡/只读/批次回滚/预算急停/审计回放/单任务锁/第二主体/机器判据/任务技能库，或要跑 P0 验收时，先读 `docs/small-business-p0/00-进度备忘录.md`，再按主题读 `01`–`10`；回归命令是 `python scripts/verify_small_business.py`。
 9. `docs/ARCHITECTURE.md` 的对应章节：按 `PROJECT_OVERVIEW.md` 第 8 节索引按需读，不要默认整份加载。
 10. 源码：需要精确行为时再读；代码是最终事实源。
 11. `CHANGELOG.md`：只在需要知道“最近改了什么 / 为什么改”时读；它是 Keep a Changelog 格式的人工摘要，不是 git log。
@@ -21,9 +21,10 @@
 - 不要为了建立认知去整份读 `docs/*.svg`。图是给人看的，文字模块表更适合 AI。但**核对/更新图里的文字时**，用 grep 只取 `<text>` 节点定位，改完用 XML 解析校验一次。
 - 不要假设 `utils/runtime.py` 存在；当前运行时初始化由 `env_patch/` 的 `.pth + sitecustomize.py` 完成，它们需要执行 `uv run python scripts/apply_env_patch.py` 装进 `.venv`（`uv sync` 重建后会丢失）。
 - 不要把 `ARCHITECTURE.md` 里的“示例/预留”当成已接入主链路；状态标记以 ✅ / 🧪 / ⚙️ / ⚠️ 为准。
-- 不要在没有任务卡时启动新任务：只读任务也要选「读」并写成功判据；写入/命令/打开类还要有机器判据。
-- 不要把“项目写保护”误写成“.env 读取已隔离”：本轮只禁止写，`.env` 读取仍是开放风险。
+- 不要在没有任务卡时启动新任务：界面用 `TaskCard.from_prompt()` 自动生成快速卡；直接调用 API 时要显式传卡。机器判据可选，未配置时只能按人工确认验收，不要把 `not_required` 说成自动验收通过。
+- 不要把“项目写保护”误写成“.env 读取已隔离”：当前只禁止写源码/配置/日志/技能库等，`.env` 读取仍是开放风险；已确认下一步应默认拒绝秘密文件读取，业务确需时再走独立敏感读取确认 + PIN + 脱敏，但尚未实现。
 - 不要为了测试用例绕过 `start_task()` 的任务卡校验；需要无卡场景时用 `policy` 单元测试，不要改运行时行为。
+- 不要把技能库当成自动工作流：它只保存脱敏步骤/截图作为提示，不会自动执行，也不能替代当前任务卡、人工确认和 PIN。技能截图可能含隐私且本地未加密，保存前要提示用户确认。
 - 不要把 `.agent_state/` 当源码或文档提交：它是运行时状态（批次/会话快照/锁/STOP），已在 `.gitignore`；测试要用 `AGENT_STATE_DIR` / `AGENT_APPROVAL_DIR` 指到临时目录，避免污染项目状态。
 - 不要把审批口令（PIN）写进 `.env`、提示词、文档、聊天记录或 Git；只能用 `scripts/setup_approval_pin.py` 写入本机审批目录（只存哈希）。
 
@@ -34,12 +35,14 @@
 - 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`docs/OS_TOOLS.md`、`architecture.svg` 工具层。
 - 新增/删除中间件 → `ARCHITECTURE.md` 5.2/8/11、`architecture.svg` 编排层。
 - 新增/删除文档 → `README.md` 导读/文档地图、`PROJECT_OVERVIEW.md` 第 8 节、本文件阅读顺序。
+- 改任务卡快速卡/技能库 → `agent/guard/task_card.py`、`agent/skill_library.py`、`app.py`、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`docs/small-business-p0/10-任务卡简化与技能库.md`、README/OS_TOOLS/ARCHITECTURE/CHANGELOG。
 - 新增/修改测试用例或验证脚本 → `tests/`、`scripts/verify_agent_resilience.py`、`scripts/verify_small_business.py`、`docs/agent-resilience/02-验证与交付复盘.md`（用例数与结论要同步）、`docs/small-business-p0/08-交付复盘与验收清单.md`（P0 用例数与证据）、`ARCHITECTURE.md` 13.10、`README.md` 能力表。
 - 改工具失败/重试/结果校验/会话自愈 → `agent/resilience.py`、`agent/tools/verification.py`、`agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` / `_should_retry_tool_error`、`ARCHITECTURE.md` 6.5/11.3/12、`docs/agent-resilience/01`，并补对应用例。
 - 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`docs/OS_TOOLS.md`、`README.md` 能力表、`architecture.svg` 工具层。
 - 改安全策略/工作区域 → `ARCHITECTURE.md` 7.2/7.4、`docs/OS_TOOLS.md` 2/8/11.2/11.3、`README.md` 配置速查；界面入口在 `app.py` 的「工作区域」弹层。
-- 改守卫层（任务卡/只读/批次/预算/急停/锁/PIN/机器判据/回滚边界）→ `agent/guard/`、`tests/test_small_business_guard.py`、`scripts/verify_small_business.py`、`ARCHITECTURE.md` 4.1/5.2/6/7/8/9/11/12/13.10/14/16.3、`docs/small-business-p0/00–09`、`README.md`、`PROJECT_OVERVIEW.md`、`architecture.svg` 守卫层。
-- 改项目写保护/审批验签/复制移动后缀/GUI 语义禁令/机器判据 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/guard/approval.py`、`agent/guard/middlewares.py`、`agent/guard/criteria.py`、`agent/guard/scope.py`、`agent/guard/task_card.py`、`agent/react_agent.py`、`docs/small-business-p0/09-安全边界与机器判据.md`、`docs/SECURITY_REPORT_2026-10-27.md`、`README.md`、`OS_TOOLS.md`、`ARCHITECTURE.md`，并补对应用例。
+- 改守卫层（任务卡/只读/批次/预算/急停/锁/PIN/机器判据/回滚边界/技能库）→ `agent/guard/`、`agent/skill_library.py`、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`scripts/verify_small_business.py`、`ARCHITECTURE.md` 4.1/5.2/6/7/8/9/11/12/13.10/14/16.3、`docs/small-business-p0/00–10`、`README.md`、`PROJECT_OVERVIEW.md`、`architecture.svg` 守卫层。
+- 改项目写保护/审批验签/复制移动后缀/GUI 语义禁令/机器判据/技能库数据目录 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/guard/approval.py`、`agent/guard/middlewares.py`、`agent/guard/criteria.py`、`agent/guard/scope.py`、`agent/guard/task_card.py`、`agent/react_agent.py`、`agent/skill_library.py`、`docs/small-business-p0/09-安全边界与机器判据.md`、`docs/small-business-p0/10-任务卡简化与技能库.md`、`docs/SECURITY_REPORT_2026-10-27.md`、`README.md`、`OS_TOOLS.md`、`ARCHITECTURE.md`，并补对应用例。
+- 实现秘密文件读取/敏感读取审批 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/react_agent.py` 的 HITL 配置、`agent/guard/approval.py`/`policy.py`、`tests/`、`docs/SECURITY_REPORT_2026-10-27.md`、`docs/small-business-p0/09–10`、README/OS_TOOLS/ARCHITECTURE/AGENTS；实现前不要把计划写成已完成。
 - 改配置 → `ARCHITECTURE.md` 9、`README.md` 配置速查。
 - 改模型/依赖/目录 → 对应技术栈、拓扑与目录树章节；**图也要同步**：`architecture.svg` 的模型/存储层节点与副标题。
 - 任何值得记录的改动（新增/变更/废弃/移除/修复）→ 归入 `CHANGELOG.md` 的 `## [Unreleased]`，按 Keep a Changelog 分组（Added / Changed / Deprecated / Removed / Fixed / Security）写英文标题 + 中文描述；发布时才改成版本标题。不要把增量日志写进架构正文。

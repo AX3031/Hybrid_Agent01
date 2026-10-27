@@ -144,6 +144,10 @@ _PROJECT_PROTECTED_DIRS = frozenset(
         ".vscode",
     }
 )
+# 项目内需要整体保护、但不属于顶层目录的路径。
+# 技能库含用户保存的步骤和截图，Agent 只能作为参考读取，不能改写。
+_PROJECT_PROTECTED_RELATIVE_DIRS = frozenset({"data/task_skills"})
+
 _PROJECT_PROTECTED_FILES = frozenset(
     {
         "app.py",
@@ -176,6 +180,7 @@ _PROJECT_FILE_TOKEN = re.compile(
 _PROJECT_ENV_TOKEN = re.compile(
     r"(?i)(?<![a-z0-9_.-])\.env(?:\.[a-z0-9_.-]+)?(?![a-z0-9_.-])"
 )
+_PROJECT_SKILL_TOKEN = re.compile(r"(?i)(?<![a-z0-9_.-])task_skills(?![a-z0-9_.-])")
 
 
 def is_project_protected(path: Path) -> bool:
@@ -187,6 +192,12 @@ def is_project_protected(path: Path) -> bool:
     parts = [part.lower() for part in relative.parts]
     if not parts:
         return False
+    relative_dir = "/".join(parts)
+    if any(
+        relative_dir == item or relative_dir.startswith(item + "/")
+        for item in _PROJECT_PROTECTED_RELATIVE_DIRS
+    ):
+        return True
     if parts[0] in _PROJECT_PROTECTED_DIRS:
         return True
     if len(parts) == 1:
@@ -203,6 +214,7 @@ def _command_touches_project_protected(command: str) -> bool:
         _PROJECT_PATH_TOKEN.search(command)
         or _PROJECT_FILE_TOKEN.search(command)
         or _PROJECT_ENV_TOKEN.search(command)
+        or _PROJECT_SKILL_TOKEN.search(command)
     )
 
 
@@ -493,7 +505,7 @@ def check_command(command: str) -> str:
             return f"该命令访问了 Agent 的状态/备份/回收目录（{name}），已拒绝：{text}"
     if _command_touches_project_protected(text):
         return (
-            "该命令引用了项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据，"
+            "该命令引用了项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据/技能库，"
             f"已拒绝：{text}"
         )
     try:

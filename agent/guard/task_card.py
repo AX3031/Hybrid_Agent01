@@ -44,6 +44,15 @@ ALL_ACTIONS = [
 
 DEFAULT_FORBIDDEN = ["发送", "提交", "付款", "提权"]
 
+# 快速卡默认只保留“提权”这一条语义禁令。
+# 如果把“发送/提交/付款”也默认写进去，所有 GUI 输入类动作都会被保守拒绝，
+# 与“能操作所有软件”的目标冲突；GUI 副作用仍由人工确认 + PIN 兜底。
+QUICK_FORBIDDEN = ["提权"]
+
+DEFAULT_SUCCESS_CRITERIA = [
+    "按用户要求完成，并以工具实际返回结果和现场证据为准",
+]
+
 
 def _as_list(value: Any) -> list[str]:
     if value is None:
@@ -72,6 +81,8 @@ class TaskCard:
     valid_minutes: int = 120
     rollback_note: str = ""
     on_uncertain: str = "标记 UNKNOWN 并停下来问人"
+    # 可复用技能库给出的步骤参考；只作为提示，不替代任务卡约束和现场核对。
+    reference_steps: list[str] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # 序列化
@@ -94,6 +105,7 @@ class TaskCard:
             "valid_minutes": int(self.valid_minutes),
             "rollback_note": self.rollback_note,
             "on_uncertain": self.on_uncertain,
+            "reference_steps": list(self.reference_steps),
         }
 
     @classmethod
@@ -117,6 +129,43 @@ class TaskCard:
             valid_minutes=int(data.get("valid_minutes") or 120),
             rollback_note=str(data.get("rollback_note", "")).strip(),
             on_uncertain=str(data.get("on_uncertain") or "标记 UNKNOWN 并停下来问人").strip(),
+            reference_steps=_as_list(data.get("reference_steps")),
+        )
+
+    @classmethod
+    def from_prompt(
+        cls,
+        prompt: str,
+        *,
+        reference_steps: list[str] | None = None,
+        allowed_actions: list[str] | None = None,
+    ) -> "TaskCard":
+        """按用户输入生成一张可用的快速任务卡。
+
+        这是界面的默认路径：用户不需要先填一长串表单。目标、预算和动作范围
+        先给安全默认值，仍然保留工作区、只读、人工确认和 PIN 这些硬约束。
+        """
+        text = str(prompt or "").strip()
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        name = first_line[:40] or "快速任务"
+        defaults = task_defaults()
+        return cls(
+            name=name,
+            user="",
+            goal=text or "按用户输入完成一次电脑操作",
+            success_criteria=list(DEFAULT_SUCCESS_CRITERIA),
+            machine_checks=[],
+            input_scope=[],
+            output_location="",
+            allowed_actions=list(ALL_ACTIONS if allowed_actions is None else allowed_actions),
+            forbidden_actions=list(QUICK_FORBIDDEN),
+            max_steps=int(defaults["max_steps"]),
+            max_minutes=int(defaults["max_minutes"]),
+            max_cost_yuan=float(defaults["max_cost_yuan"]),
+            valid_minutes=120,
+            rollback_note="",
+            on_uncertain="标记 UNKNOWN 并停下来问人",
+            reference_steps=list(reference_steps or []),
         )
 
     # ------------------------------------------------------------------
@@ -135,23 +184,8 @@ class TaskCard:
         if not self.allowed_actions:
             errors.append("至少允许一个动作类别（只读任务就选「读」）")
 
-        # 写入/命令/打开类任务必须有可执行的机器判据；只有只读/纯 GUI 任务
-        # 允许留空，但任务结束时只能标“未确认”。
-        machine_required = {
-            ACTION_WRITE,
-            ACTION_MOVE,
-            ACTION_COPY,
-            ACTION_DELETE,
-            ACTION_COMMAND,
-            ACTION_OPEN,
-        }
-        if not self.machine_checks and any(
-            action in machine_required for action in self.allowed_actions
-        ):
-            errors.append(
-                "写入/命令/打开类任务至少需要一条机器判据，"
-                "例如 exists|D:\\输出\\结果.xlsx 或 file_count|D:\\输出|3"
-            )
+        # 机器判据是可选的增强项：有就校验格式；没有时任务结束只能标“未确认”。
+        # 这样普通任务不必先学判据语法，写入/命令类仍建议填写。
         errors.extend(criteria.validate_machine_checks(self.machine_checks))
 
         if not (1 <= int(self.max_steps) <= 200):
@@ -211,6 +245,12 @@ class TaskCard:
         forbidden = "、".join(self.forbidden_actions) or "无"
         scope = "、".join(self.input_scope) or "工作区内的只读范围"
         output = self.output_location or "未指定（写操作仍受工作区限制）"
+        reference = (
+            "\n可复用技能参考（只作步骤提示，执行前仍要按现场核对）：\n"
+            + "\n".join(f"  - {item}" for item in self.reference_steps)
+            if self.reference_steps
+            else ""
+        )
         return (
             "【当前任务卡（必须遵守，越界会被系统直接拒绝）】\n"
             f"任务名：{self.name}\n"
@@ -218,7 +258,7 @@ class TaskCard:
             f"目标：{self.goal}\n"
             "成功判据（完成前逐条核对）：\n"
             f"{criteria_text}\n"
-            "机器判据（任务结束由代码核对，未通过/未确认不能算完成）：\n"
+            "机器判据（可选；任务结束由代码核对，未配置按人工确认验收）：\n"
             f"{machine}\n"
             f"输入范围：{scope}\n"
             f"输出位置：{output}\n"
@@ -229,6 +269,7 @@ class TaskCard:
             f"回滚方式：{self.rollback_note or '批次号会在任务开始时生成，可在界面「批次与回滚」里一键撤销整批'}\n"
             f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}\n"
             f"不确定时：{self.on_uncertain}\n"
+            f"{reference}\n"
             "语义禁令说明：如果禁止动作里包含「发送/提交/付款」，系统会保守拒绝"
             "所有 GUI 输入类动作（点击/键盘/剪贴板写入/应用启停），因为无法判断一次点击"
             "是否会触发提交；不要尝试用命令或打开程序绕过。\n"

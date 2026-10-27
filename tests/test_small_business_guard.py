@@ -217,7 +217,7 @@ class TaskCardPolicyTest(GuardTestBase):
             "write_text_file",
             {"path": str(self.output / "x.txt"), "content": "x"},
         )
-        self.assertIn("必须先启用任务卡", reason)
+        self.assertIn("当前任务没有任务卡", reason)
         self.assertEqual(
             policy.preflight_reason("list_directory", {"path": str(self.workspace)}),
             "",
@@ -395,6 +395,7 @@ class ProjectProtectionTest(GuardTestBase):
             ".git/config",
             "logs/audit_20261027.jsonl",
             "memorys/chat_history/agent.json",
+            "data/task_skills/skills.json",
             ".env",
         ]
         for relative in protected:
@@ -415,12 +416,16 @@ class ProjectProtectionTest(GuardTestBase):
             path, error = safety.guard_path("data/output.txt", for_write=True)
             self.assertIsNotNone(path)
             self.assertEqual(error, "")
+            path, error = safety.guard_path("data/task_skills/skills.json", for_write=True)
+            self.assertIsNone(path)
+            self.assertIn("项目源码", error)
         finally:
             safety.WORKSPACE_ROOTS = old_roots
 
     def test_command_cannot_touch_project_protected_paths(self):
         self.assertIn("项目源码", safety.check_command("Set-Content config/agent.yml x"))
         self.assertIn("项目源码", safety.check_command("copy a.txt logs/x.txt"))
+        self.assertIn("项目源码", safety.check_command("copy a.txt data/task_skills/skills.json"))
         self.assertIn("复制/移动为可执行文件", safety.check_command("copy a.txt b.bat"))
         self.assertEqual(safety.check_command("dir data"), "")
 
@@ -488,14 +493,31 @@ class GuiSemanticForbiddenTest(GuardTestBase):
 
 
 class TaskCardMachineCheckTest(GuardTestBase):
-    def test_write_card_requires_machine_check(self):
+    def test_write_card_can_omit_machine_check(self):
         card = self.make_card(machine_checks=[], allowed_actions=["写"])
-        errors = card.validate()
-        self.assertTrue(any("机器判据" in item for item in errors))
+        self.assertEqual(card.validate(), [])
 
     def test_readonly_card_can_omit_machine_check(self):
         card = self.make_card(machine_checks=[], allowed_actions=["读"])
         self.assertEqual(card.validate(), [])
+
+    def test_quick_card_needs_no_form_and_keeps_gui_actions(self):
+        card = TaskCard.from_prompt("打开记事本并写一段话")
+        self.assertEqual(card.validate(), [])
+        self.assertIn("桌面", card.allowed_actions)
+        self.assertEqual(card.machine_checks, [])
+        self.assertIn("打开记事本", card.goal)
+        self.assertNotIn("发送", card.forbidden_actions)
+        self.assertIn("提权", card.forbidden_actions)
+
+    def test_quick_card_can_carry_skill_steps(self):
+        card = TaskCard.from_prompt(
+            "导出报表",
+            reference_steps=["1. 打开应用", "2. 点击导出"],
+        )
+        prompt = card.to_prompt()
+        self.assertIn("可复用技能参考", prompt)
+        self.assertIn("点击导出", prompt)
 
     def test_machine_checks_pass_with_deterministic_evidence(self):
         target = self.output / "result.txt"
@@ -545,11 +567,31 @@ class TaskCardMachineCheckTest(GuardTestBase):
         guard_state.end_task("finished")
         self.assertIsNone(guard_state.current())
 
+    def test_quick_task_without_machine_checks_can_finish(self):
+        guard_state.start_task(
+            "verify-quick",
+            TaskCard.from_prompt("打开记事本"),
+            batch_id="BVERIFY-2",
+        )
+        guard_state.mark_verification("not_required")
+        self.assertEqual(guard_state.current().status, "running")
+        guard_state.end_task("finished")
+        self.assertIsNone(guard_state.current())
+
 
 class TaskCardRequiredTest(GuardTestBase):
     def test_new_task_without_card_is_rejected(self):
         with self.assertRaises(ValueError):
             guard_state.start_task("no-card", None)
+
+    def test_quick_card_can_start_a_task(self):
+        task = guard_state.start_task(
+            "quick-card",
+            TaskCard.from_prompt("查看桌面"),
+            batch_id="BQUICK-1",
+        )
+        self.assertEqual(task.card["goal"], "查看桌面")
+        guard_state.end_task()
 
 
 class GuardMiddlewareOrderTest(GuardTestBase):

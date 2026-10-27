@@ -314,9 +314,9 @@ def preflight_reason(tool_name: str, args: dict | None = None) -> str:
     card = state.current_card()
     if card is None and requires_task_card(tool_name, args):
         return (
-            f"工具 `{tool_name}` 会修改本机，必须先启用任务卡"
-            "（目标 / 成功判据 / 允许范围 / 预算）。"
-            "请到侧边栏「任务卡」填写并启用后重试；只读问答不需要任务卡。"
+            f"工具 `{tool_name}` 会修改本机，但当前任务没有任务卡。"
+            "界面会自动生成快速卡；直接调用 API 时请先传入 TaskCard"
+            "（可用 TaskCard.from_prompt()）。"
         )
     if card:
         reason = check_task_card(card, tool_name, args)

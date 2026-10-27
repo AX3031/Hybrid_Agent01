@@ -8,6 +8,11 @@
 
 ### Added
 
+- `agent/skill_library.py` + `app.py`「任务技能库」：从最近任务生成脱敏步骤（省略输入文字原文、命令原文和 URL），复制关键截图/最终成果截图，保存技能并在下一次任务作为步骤参考；技能库在 `data/task_skills/`（git 忽略），Agent 不能写、`run_command` 不能引用。
+- `agent/guard/task_card.py` + `agent/react_agent.py`：新增 `TaskCard.from_prompt()` 快速卡、`reference_steps` 技能参考；机器判据改为可选，未配置时验证状态为 `not_required`，界面显示为“未配置（按人工确认）”。
+- `tests/test_skill_library.py`：技能库步骤脱敏、截图复制、保存/读取/删除、使用次数用例。
+- `agent/tools/computer_use.py`：截图结果在文本中附带本地截图文件路径，供任务技能库筛选关键截图/最终成果截图。
+- `docs/small-business-p0/10-任务卡简化与技能库.md`：快速任务卡、技能库、复用方式与安全边界。
 - `agent/guard/`：新增小企业版 P0 守卫层（任务卡、只读、R0–R3 分级、批次回滚、预算急停、审计、单任务锁、第二主体 PIN）。
 - `agent/guard/task_card.py` + `app.py` 侧边栏「任务卡」：任务卡表单、字段校验、转系统提示词、缺成功判据不允许启动；任务卡快照写入批次与审计。
 - `agent/guard/journal.py` + 侧边栏「批次与回滚」：每个任务一个批次号，写入/覆盖/追加/建目录/移动/复制/删除/永久删除均记录；支持一键整批回滚并分列“已恢复/失败/不可逆”。
@@ -24,7 +29,7 @@
 - `agent/guard/approval.py` + `middlewares.py`：`guard_execute` 对 R2/R3 验签 HMAC，并绑定 thread/batch/actions；假 token、过期、错任务/批次/参数都会被拒。
 - `agent/guard/policy.py`：任务卡禁止发送/提交/付款时，保守拒绝所有 GUI 输入类动作。
 - `agent/react_agent.py` + `agent/tools/middleware.py`：新增 `verification` 事件、工具失败计数；任务结束执行机器判据并写审计。
-- `docs/small-business-p0/00–09`：进度备忘录 + 各阶段入门讲解 + 交付复盘与验收清单 + 本轮安全边界与机器判据。
+- `docs/small-business-p0/00–10`：进度备忘录 + 各阶段入门讲解 + 交付复盘与验收清单 + 安全边界与机器判据 + 任务卡简化与技能库。
 - `docs/SECURITY_REPORT_2026-10-27.md`：新增当前安全性评估（初始评估发现 `.env` 可读、项目源码/配置/日志写、审批参数入审计、复制/移动后缀、GUI 禁止项不生效、无出口白名单等）；后续修复状态见该文 4.13 与 `docs/small-business-p0/09`。
 
 - `agent/tools/middleware.py`：新增 `tool_error_middleware`（`ToolErrorMiddleware`）—— 工具抛异常时转成 `ToolMessage(status="error")`，内容以「工具 xxx 执行失败」开头，ReAct 循环不再被整轮打断；异常类型与一句话原因写日志，堆栈不发给模型。
@@ -70,8 +75,9 @@
 
 ### Changed
 
-- 任务卡从“写操作前置”升级为“每个新任务必填”：只读任务也要选「读」并写成功判据；写入/命令/打开类必须有机器判据；`start_task()` 与界面双重拒绝无卡任务。
-- `tests/test_small_business_guard.py` 从 27 条扩到 47 条，全套从 47 条扩到 67 条；证据文件更新为 `docs/small-business-p0/evidence/verify-20261027-154810.json`。
+- 任务卡从“每个新任务手动填表”改为“默认按输入自动生成快速卡，高级设置按需展开”；快速卡默认允许全部动作、只默认禁止“提权”；`start_task()` 仍要求有卡；机器判据改为可选，未配置时按人工确认验收。GUI “发送/提交/付款”语义禁令只在自定义卡保留这些词时生效。
+- `tests/test_small_business_guard.py` 扩到 51 条 P0 用例，加入技能库 5 条，全套 75 条；证据文件更新为 `docs/small-business-p0/evidence/verify-20261027-182040.json`。
+- 历史记录（保留）：任务卡曾从“写操作前置”升级为“每个新任务必填”；本轮为可用性再次调整为自动快速卡。
 
 - 中间件列表新增 `guard_model`（模型前预算/急停短路）、`guard_preflight`（人工确认前只读/任务卡/预算检查）、`guard_execute`（确认后计步）、`track_model_usage`（token/费用记账）；顺序为 `model_fallback → guard_model → pii → tool_error → tool_retry → monitor_tool → guard_preflight → log_before_model → report_prompt_switch → hitl → guard_execute → tool_limit → track_model_usage`。
 - `ReactAgent.execute_stream` / `resume_stream`：新增任务卡参数、单任务锁、任务运行时启动/恢复/结束；`AgentEvent` 的 interrupt 事件新带 `batch_id` 与 `task_card` 快照。

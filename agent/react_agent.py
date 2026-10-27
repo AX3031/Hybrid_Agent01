@@ -81,7 +81,7 @@ class AgentEvent:
     - type="text"：模型输出的一段文本，content 为内容
     - type="interrupt"：有危险操作等待确认，action_requests 为待确认的工具调用
     - type="tool"：一个工具调用已返回结果，tool_call 包含名称、参数、结果、状态
-    - type="verification"：任务结束时的机器判据报告；未通过/未确认不能算完成
+    - type="verification"：任务结束时的机器判据报告；未配置为 not_required，未通过/未确认不能算完成
     """
 
     type: str
@@ -219,7 +219,17 @@ class ReactAgent:
         card = guard_state.current_card()
         if card is None:
             return AgentEvent(type="verification", content="未使用任务卡，无法核对机器判据。")
-        report = criteria.criteria_report(card.machine_checks)
+        if not card.machine_checks:
+            report = {
+                "status": "not_required",
+                "text": (
+                    "本次没有配置机器判据；按人工确认、操作记录和现场结果验收。"
+                    "需要更强的自动验收时，再在自定义任务卡里填写机器判据。"
+                ),
+                "checks": [],
+            }
+        else:
+            report = criteria.criteria_report(card.machine_checks)
         if task.tool_errors:
             report = {
                 **report,
@@ -237,9 +247,15 @@ class ReactAgent:
             status=report["status"],
             checks=report["checks"],
         )
+        status_label = {
+            "passed": "通过",
+            "failed": "失败",
+            "unconfirmed": "未确认",
+            "not_required": "未配置（按人工确认）",
+        }.get(str(report["status"]), str(report["status"]))
         return AgentEvent(
             type="verification",
-            content=f"状态：{report['status']}\n{report['text']}",
+            content=f"状态：{status_label}\n{report['text']}",
             batch_id=task.batch_id,
             task_card=card.to_dict(),
         )

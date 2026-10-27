@@ -620,10 +620,16 @@ def _format_result(action: str, result: Any) -> str | list[dict]:
 
     if action == "screenshot" and result.image is not None:
         uri, size_hint = _screenshot_image_uri(result)
+        data = result.data if isinstance(result.data, dict) else {}
+        screenshot_path = str(data.get("path") or "").strip()
+        path_note = f"\n截图文件：{screenshot_path}" if screenshot_path else ""
         return [
             {
                 "type": "text",
-                "text": f"{text}\n\n（{size_hint} 坐标原点在左上角，单位为像素。）",
+                "text": (
+                    f"{text}\n\n（{size_hint} 坐标原点在左上角，单位为像素。）"
+                    f"{path_note}"
+                ),
             },
             {
                 "type": "image_url",

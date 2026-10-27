@@ -10,7 +10,7 @@
 
 ## 1. 一句话
 
-基于 **LangChain 1.4 `create_agent`（LangGraph）** 的本地电脑助手原型：Streamlit UI + 工具调用 + 文件系统/进程/命令操作 + 截屏与鼠标键盘/窗口控制 + 高危操作人工确认，支持短期/本地 JSON/PostgreSQL 三种会话记忆；并接入小企业版 P0 守卫层（任务卡、只读、批次回滚、预算急停、审计回放、单任务锁、PIN）。
+基于 **LangChain 1.4 `create_agent`（LangGraph）** 的本地电脑助手原型：Streamlit UI + 工具调用 + 文件系统/进程/命令操作 + 截屏与鼠标键盘/窗口控制 + 高危操作人工确认，支持短期/本地 JSON/PostgreSQL 三种会话记忆；并接入小企业版 P0 守卫层（默认自动任务卡、可选机器判据、任务技能库、只读、批次回滚、预算急停、审计回放、单任务锁、PIN）。
 
 ## 2. 技术栈
 
@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | 表现层 | `app.py` | 收集输入、展示流式输出、渲染高危操作确认卡片 |
 | 编排层 | `ReactAgent` + 中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，兜底工具异常与结果校验，拦截高危操作 |
-| 守卫层 | `agent/guard/` | 任务卡、机器判据、只读、R0–R3 分级、批次回滚、回滚边界、预算急停、审计、单任务锁、PIN 验签 |
+| 守卫层 | `agent/guard/` + `agent/skill_library.py` | 任务卡、可选机器判据、只读、R0–R3 分级、批次回滚、回滚边界、预算急停、审计、单任务锁、PIN 验签、任务技能库 |
 | 工具层 | `os_tools`（13 个）+ `agent_tools`（7 个）+ `computer_use`（1 个，18 动作） | 本机信息、文件读写/搜索、进程、命令、业务查询、桌面控制 |
 | 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 |
 | 模型/存储 | `ChatOpenAI`、记忆后端、本地文件系统 | 推理、上下文持久化、文件读写 |
@@ -38,7 +38,7 @@
 
 ## 4. 一次请求怎么走
 
-1. `app.py` 接收输入；**每个新任务都必须启用任务卡**（只读任务也要选「读」并写成功判据），再读只读/急停设置。
+1. `app.py` 接收输入；默认按输入自动生成**快速任务卡**（目标=输入，预算用默认值），需要时才打开高级设置；工作区、只读、人工确认和 PIN 仍然生效。
 2. `ReactAgent.execute_stream(query, thread_id, task_card)` 先取单任务文件锁，再创建任务运行时（批次号、预算、任务卡快照），然后用 `resilience.repair_thread_state` 修复上次中断留下的悬空工具调用。
 3. `create_agent` 构建 LangGraph；中间件顺序：模型降级 → `guard_model`（预算/急停短路）→ PII → 错误兜底/重试 → `monitor_tool`（审计）→ `guard_preflight`（只读/任务卡/预算）→ HITL → `guard_execute`（确认后计步 + R2/R3 验签）→ 工具。
 4. 模型返回 `tool_calls`：只读工具直接执行；工具异常先按规则重试，重试耗尽后转成 `status=error` 的 `ToolMessage`；文件类操作在写审计前做结果校验；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；R2/R3 动作在确认卡片上还要求输入审批口令（PIN）。
@@ -57,9 +57,9 @@
 
 **桌面控制（computer_use，单工具多动作）**：复用 OmniPilot 的本地工具层（screen / gui / clipboard / apps），不引入它自己的 Agent 循环。`screen_size`、`locate_image`、`wait` 直接执行；`screenshot`、剪贴板读写、应用列表和所有鼠标键盘动作都需确认。截图以 LangChain content block 回传，`qwen3.5-flash` 可以直接看图；确认卡片会说明坐标、目标窗口和隐私风险。`app_open` 拒绝终端/脚本宿主/注册表/磁盘工具，`app_close` 拒绝系统关键进程。
 
-**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入（复制/移动目标与目录树也检查）；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据拒绝 Agent 写入；任务卡预算（默认 30 步/10 分钟/2 元）+ 100 步/单次运行硬上限。
+**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入（复制/移动目标与目录树也检查）；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据/技能库拒绝 Agent 写入；任务卡预算（默认 30 步/10 分钟/2 元）+ 100 步/单次运行硬上限。
 
-**守卫层（小企业版 P0）**：每个新任务必须带任务卡；写入/命令/打开类必须有机器判据，任务结束由代码核对；只读模式禁用全部写操作；每个任务一个批次号，可在侧边栏整批回滚，并明确命令/GUI/永久删除不在回滚范围；R2/R3 动作需要人工持有的 PIN，执行侧验签并绑定任务/批次/动作；急停写 `STATE_DIR/STOP` 文件；审计记录 `batch_id/step_no/reversibility/approver`；同一时刻只允许一个任务操作本机。
+**守卫层（小企业版 P0）**：界面自动生成快速任务卡，`start_task` 仍要求有卡；机器判据可选，填了才由代码核对，未填按人工确认验收；只读模式禁用全部写操作；每个任务一个批次号，可在侧边栏整批回滚，并明确命令/GUI/永久删除不在回滚范围；R2/R3 动作需要人工持有的 PIN，执行侧验签并绑定任务/批次/动作；急停写 `STATE_DIR/STOP` 文件；审计记录 `batch_id/step_no/reversibility/approver`；同一时刻只允许一个任务操作本机。
 
 **失败与校验**：工具异常不打断循环（`ToolErrorMiddleware` → `status=error` 的 ToolMessage）；只对幂等/只读工具的瞬时错误（超时/断连/429/5xx）重试 2 次；写文件、建目录、移动、复制、删除在写审计前做确定性后置校验，校验不过就标 `error`；上次崩溃留下的悬空 `tool_call` 会在下次提问前自动补齐占位结果。
 
@@ -70,12 +70,12 @@
 ## 6. 目录速查
 
 ```text
-agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、守卫层、会话自愈、结果校验、安全策略与中间件
+agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、守卫层、任务技能库、会话自愈、结果校验、安全策略与中间件
 model/        Chat 模型工厂
 utils/        配置、路径、日志、提示词加载
 config/       model / agent / prompts
 prompts/      main / report
-data/         external/records.csv
+data/         external/records.csv；task_skills/ 本地技能库（git 忽略）
 memorys/      记忆方式工厂 + 短期/JSON/PostgreSQL checkpointer
 tests/        unittest 用例（假模型，不联网）
 docs/         架构文档、改造复盘、电脑操作说明、small-business-p0 与 SVG
@@ -93,7 +93,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；R2/R3 动作还需输入审批口令（PIN），执行侧验签并校验任务/批次/动作；未设置 PIN 时批准按钮禁用。
 - **可整批回滚**：一次任务一个批次号；写/移动/复制/删除/建目录/追加都记入 `.agent_state/batches/`，可在侧边栏一键撤销整批；永久删除会明确报“不可逆”。`run_command` 内部修改的文件、`computer_use` / `open_path` 的应用内状态不在回滚范围；任务卡与确认卡片会明确显示。
 - **预算与急停是硬约束**：步数/时长/费用超限时 `guard_model` 直接短路，不再调用模型；急停写 `STOP` 文件，独立于模型。
-- **任务卡是每个任务的前提**：新任务没有卡时界面阻止发送，`start_task` 也直接拒绝；只读任务也要选「读」并写成功判据；写入/命令/打开类还必须有机器判据。
+- **任务卡默认自动**：界面按输入生成快速卡，`start_task` 仍要求有卡；机器判据可选，未配置时按人工确认验收。技能库保存步骤/截图作为参考，不自动执行。
 - **单任务锁**：同一时刻只允许一个任务操作本机；等待人工确认的间隙会释放锁。
 - **删除默认进回收区**：`.agent_trash` 可手动恢复；`permanent=True` 才永久删除。
 - **命令检查不是沙箱**：黑名单 + 路径提取是尽力而为，确认卡片是最后防线。
@@ -102,7 +102,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **桌面控制的应用边界**：`app_open` 不启动终端/脚本宿主/注册表/磁盘工具（避免绕过 `run_command`）；`app_close` 不关闭系统关键进程。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
 - **Windows 集成终端已放宽执行策略**：`.vscode/settings.json` 给终端的 PowerShell 加了 `-ExecutionPolicy Bypass`（仅该终端进程、不写注册表），用于让自动执行的 `Activate.ps1` 跟 Windows 默认的 `Restricted` 共存；它不是安全防线，项目边界仍在 `safety.py` + HITL 确认 + 审计日志。
-- **未实现**：鉴权、限流、多租户、文件上传 UI；已有 67 条离线用例（含 P0 守卫层 47 条）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏；`.env` 读取仍未拦截。
+- **未实现**：鉴权、限流、多租户、文件上传 UI；已有 75 条离线用例（含 P0 守卫层 51 条）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏；`.env`/密钥文件读取仍未拦截（计划默认拒绝 + 独立敏感读取审批）；技能库截图可能含隐私，保存前需人工确认。
 
 ## 8. 按问题找位置
 
@@ -112,7 +112,8 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 | 整体分几层、用了什么？ | [ARCHITECTURE 第 4 节](ARCHITECTURE.md#4-总体架构) + [architecture.svg](architecture.svg) |
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
-| 任务卡/批次回滚/预算急停/PIN 怎么实现？ | [小企业版 P0 进度备忘录](small-business-p0/00-进度备忘录.md) + 01–09 入门讲解 |
+| 任务卡/批次回滚/预算急停/PIN 怎么实现？ | [小企业版 P0 进度备忘录](small-business-p0/00-进度备忘录.md) + 01–10 入门讲解 |
+| 任务卡怎么简化、技能库怎么用？ | [10-任务卡简化与技能库](small-business-p0/10-任务卡简化与技能库.md) |
 | P0 怎么验收、证据在哪？ | [08-交付复盘与验收清单](small-business-p0/08-交付复盘与验收清单.md) + `docs/small-business-p0/evidence/` |
 | 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
 | 工具失败/重试/结果校验怎么工作？ | [agent-resilience/01-入门讲解-失败重试与结果验证.md](agent-resilience/01-入门讲解-失败重试与结果验证.md) |

@@ -17,7 +17,7 @@
 
   <g font-family="Microsoft YaHei, PingFang SC, Segoe UI, sans-serif">
     <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">本地电脑助手 Agent · 系统架构总览</text>
-    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 小企业版 P0 守卫层 · 文件系统 / psutil / OmniPilot 工具层 · Streamlit UI</text>
+    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 小企业版 P0 守卫层 · 任务技能库 · 文件系统 / psutil / OmniPilot 工具层 · Streamlit UI</text>
 
     <!-- Presentation layer -->
     <rect x="40" y="104" width="1120" height="88" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
@@ -50,7 +50,7 @@
     <rect x="864" y="264" width="240" height="44" rx="8" fill="#faf5ff" stroke="#d8b4fe"/>
     <text x="874" y="283" font-size="12" font-weight="600" fill="#0f172a">report_prompt_switch</text>
     <text x="874" y="299" font-size="10.5" fill="#64748b">按 context 切换系统提示词</text>
-    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ 守卫层（任务卡 + 机器判据 / 只读 / 批次回滚 + 回滚边界 / 预算急停 / PIN 验签） · ToolError · ToolRetry · 结果校验 · 会话自愈 · PII · ModelFallback · HITL · ToolCallLimit（100 步兜底）</text>
+    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ 守卫层（自动快速卡 + 可选机器判据 / 只读 / 批次回滚 + 回滚边界 / 预算急停 / PIN 验签） · 任务技能库 · ToolError · ToolRetry · 结果校验 · 会话自愈 · PII · ModelFallback · HITL · ToolCallLimit（100 步兜底）</text>
 
     <path d="M310 178 V240" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M394 278 H420" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
@@ -132,7 +132,7 @@
     <path d="M560 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M800 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
-    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 项目源码/配置/日志写保护 · 28 条命令黑名单 · 任务预算（默认 30 步 / 100 步兜底）· 机器判据 · 批次整批回滚（命令/GUI 不在范围）· 只读总开关 · R2/R3 需 PIN 且执行侧验签 · 审计 logs/audit_*.jsonl</text>
+    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 项目源码/配置/日志/技能库写保护 · 28 条命令黑名单 · 任务预算（默认 30 步 / 100 步兜底）· 可选机器判据 · 批次整批回滚（命令/GUI 不在范围）· 只读总开关 · R2/R3 需 PIN 且执行侧验签 · 审计 logs/audit_*.jsonl</text>
     <text x="64" y="870" font-size="10.5" fill="#64748b">会话记忆在输入框左侧按钮切换：短期记忆（默认）/ 本地 JSON / PostgreSQL；侧边栏管理会话 ID。</text>
 
     <!-- Prompt switch (dashed) -->

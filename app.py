@@ -1,9 +1,11 @@
 import json
 import uuid
+from pathlib import Path
 from typing import Iterator
 
 import streamlit as st
 
+from agent import skill_library
 from agent.react_agent import AgentEvent, ReactAgent
 from agent.guard import approval, journal
 from agent.guard import state as guard_state
@@ -11,7 +13,13 @@ from agent.guard.config import read_only_enabled, set_read_only, task_defaults
 from agent.guard.lock import TaskBusyError
 from agent.guard.policy import requires_second_subject, reversibility_of
 from agent.guard.scope import ROLLBACK_BOUNDARY_TEXT, rollback_note
-from agent.guard.task_card import ALL_ACTIONS, DEFAULT_FORBIDDEN, TaskCard
+from agent.guard.task_card import (
+    ALL_ACTIONS,
+    DEFAULT_FORBIDDEN,
+    DEFAULT_SUCCESS_CRITERIA,
+    QUICK_FORBIDDEN,
+    TaskCard,
+)
 from agent.tools.safety import (
     describe_operation,
     expand_path,
@@ -30,6 +38,34 @@ from utils.logger_handler import logger
 
 DEFAULT_SESSION_ID = "user_001"
 GREETING = {"role": "assistant", "content": "你好，我可以查看这台电脑的信息，也能帮你整理文件、执行命令。你想做什么？"}
+
+
+def _reference_steps_from_state() -> tuple[str, list[str]]:
+    """返回当前选中的技能 id 与步骤参考。"""
+    skill_id = str(st.session_state.get("skill_reference_id") or "")
+    if not skill_id:
+        return "", []
+    skill = skill_library.get_skill(skill_id)
+    if not skill:
+        st.session_state.pop("skill_reference_id", None)
+        return "", []
+    return skill_id, [str(item) for item in skill.get("steps") or []]
+
+
+def _remember_last_task(
+    card: TaskCard | None,
+    operations: list[dict],
+    prompt: str = "",
+) -> None:
+    """把最近一次任务的操作记录留给技能库保存，不写入模型上下文。"""
+    if card is None and not operations:
+        return
+    st.session_state["last_task"] = {
+        "prompt": prompt or (card.goal if card else ""),
+        "card": card.to_dict() if card else None,
+        "operations": operations,
+        "screenshots": skill_library.screenshot_candidates(operations),
+    }
 
 # 记忆按钮上显示的精简名称
 MODE_SHORT_LABELS = {
@@ -231,6 +267,8 @@ def _render_hitl_block(agent: ReactAgent) -> None:
     finally:
         guard_state.clear_approval_context()
 
+    last_prompt = str((st.session_state.get("last_task") or {}).get("prompt") or "")
+    _remember_last_task(task_card, operations, last_prompt)
     if content or operations:
         st.session_state["message"].append(
             {
@@ -248,72 +286,93 @@ def _on_readonly_toggle() -> None:
 
 
 def _render_task_card_section() -> None:
-    """任务卡表单；启用后写进提示词与审计。"""
+    """任务卡：默认自动生成，只有需要时再展开高级表单。"""
     defaults = task_defaults()
     active = TaskCard.from_dict(st.session_state.get("task_card"))
 
-    with st.expander("任务卡（必须填写）", expanded=bool(active)):
+    with st.expander("任务卡（可选，默认自动）", expanded=False):
         st.caption(
-            "每个任务都必须有任务卡；缺目标/成功判据/机器判据（写入类）无法启用。"
-            "任务结束会由代码核对机器判据，未通过/未确认不能算完成。"
-        )
-        st.caption(
-            "如果禁止动作里保留「发送/提交/付款」，所有 GUI 输入类动作都会被保守拒绝；"
-            "系统无法判断一次点击是否等于提交。run_command/open_path 不在此语义拦截内，仍需人工确认 + PIN。"
+            "不用先填表：每次提问会自动生成一张快速任务卡，目标就是你的输入，"
+            "预算使用默认值。工作区、只读开关、人工确认和 PIN 仍然生效。"
         )
         if active:
             st.success(active.summary_text())
             st.caption("成功判据：" + "；".join(active.success_criteria))
             st.caption(
-                "机器判据：" + ("；".join(active.machine_checks) if active.machine_checks else "未配置（只能标未确认）")
+                "机器判据："
+                + (
+                    "；".join(active.machine_checks)
+                    if active.machine_checks
+                    else "未配置（按人工确认验收）"
+                )
             )
             st.caption(f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}")
-            if st.button("清除任务卡", key="clear_task_card", use_container_width=True):
+            if st.button("恢复自动任务卡", key="clear_task_card", use_container_width=True):
                 st.session_state.pop("task_card", None)
+                st.session_state.pop("task_card_custom_enabled", None)
                 st.rerun()
+        custom_enabled = st.toggle(
+            "自定义任务卡（高级）",
+            value=bool(active),
+            key="task_card_custom_enabled",
+            help="只在需要限定目录/预算/动作时使用。",
+        )
+        if not active and not custom_enabled:
+            st.info("当前：自动任务卡。需要限定目录、预算或动作时，再打开上面的高级设置。")
+        if active and not custom_enabled:
+            st.warning("自定义任务卡仍在生效；要恢复自动模式，请点上面的「恢复自动任务卡」。")
+        if not custom_enabled:
+            return
 
+        st.caption(
+            "允许动作默认包含全部类别，便于操作不同软件；命令/GUI 仍会人工确认，"
+            "R2/R3 还需要 PIN。若保留「发送/提交/付款」到禁止动作，GUI 输入会被保守拒绝。"
+        )
         with st.form("task_card_form"):
-            name = st.text_input("任务名", value=active.name if active else "")
-            user = st.text_input("使用者", value=active.user if active else "")
+            name = st.text_input(
+                "任务名（可选）",
+                value=active.name if active else "",
+                placeholder="留空 = 用输入的前 40 个字",
+            )
             goal = st.text_area(
-                "目标", value=active.goal if active else "", height=80,
-                placeholder="例如：把下载目录里的发票按 年月_金额_供应商 改名并归档",
+                "目标（可选）",
+                value=active.goal if active else "",
+                height=70,
+                placeholder="留空 = 使用本次输入",
             )
             criteria = st.text_area(
-                "成功判据（人话；每行一条）",
+                "成功判据（可选；每行一条）",
                 value="\n".join(active.success_criteria) if active else "",
-                height=100,
-                placeholder="例如：归档目录文件数 = 源目录文件数\n无重名文件",
+                height=70,
+                placeholder="留空 = 使用默认判据",
             )
             machine_checks = st.text_area(
-                "机器判据（写入/命令/打开类必填；每行一条）",
+                "机器判据（可选；写入/命令类建议填）",
                 value="\n".join(active.machine_checks) if active else "",
-                height=100,
-                placeholder=(
-                    "exists|D:\\输出\\结果.xlsx\n"
-                    "file_count|D:\\输出|3\n"
-                    "sha256|D:\\输出\\结果.xlsx|64位十六进制"
-                ),
+                height=80,
+                placeholder="exists|D:\\输出\\结果.xlsx\nfile_count|D:\\输出|3",
             )
             input_scope = st.text_area(
-                "输入范围（每行一个目录；留空 = 工作区只读范围）",
+                "输入范围（可选；每行一个目录）",
                 value="\n".join(active.input_scope) if active else "",
-                height=70,
+                height=60,
+                placeholder="留空 = 工作区内只读范围",
             )
             output_location = st.text_input(
-                "输出位置（目录；留空 = 只受工作区限制）",
+                "输出位置（可选）",
                 value=active.output_location if active else "",
+                placeholder="留空 = 只受工作区限制",
             )
             allowed = st.multiselect(
                 "允许的动作",
                 ALL_ACTIONS,
-                default=active.allowed_actions if active and active.allowed_actions else [ALL_ACTIONS[0]],
-                help="默认只允许「读」；需要写入/命令/桌面时再显式选择。",
+                default=active.allowed_actions if active and active.allowed_actions else ALL_ACTIONS,
+                help="默认全部；只读任务请只选「读」。",
             )
             forbidden = st.multiselect(
                 "禁止的动作",
                 ALL_ACTIONS + DEFAULT_FORBIDDEN,
-                default=active.forbidden_actions if active else DEFAULT_FORBIDDEN,
+                default=active.forbidden_actions if active else QUICK_FORBIDDEN,
             )
             col_steps, col_minutes, col_cost = st.columns(3)
             steps = col_steps.number_input(
@@ -327,31 +386,18 @@ def _render_task_card_section() -> None:
             cost = col_cost.number_input(
                 "费用上限（元）", min_value=0.1, max_value=100.0,
                 value=float(active.max_cost_yuan if active else defaults["max_cost_yuan"]),
-                step=0.5,
-            )
-            valid_minutes = st.number_input(
-                "有效期（分钟）", min_value=1, max_value=1440,
-                value=int(active.valid_minutes if active else 120),
-            )
-            rollback_note_value = st.text_area(
-                "回滚说明（可选）",
-                value=active.rollback_note if active else "",
-                height=60,
-                placeholder="例如：只回滚文件类改动；命令/GUI 不在回滚范围",
+                step=0.1,
             )
             st.caption(f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}")
-            uncertain = st.text_input(
-                "不确定时怎么办",
-                value=active.on_uncertain if active else "标记 UNKNOWN 并停下来问人",
-            )
-            submitted = st.form_submit_button("启用任务卡", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("启用自定义任务卡", type="primary", use_container_width=True)
 
         if submitted:
+            criteria_lines = [line.strip() for line in criteria.splitlines() if line.strip()]
             card = TaskCard(
-                name=name.strip(),
-                user=user.strip(),
-                goal=goal.strip(),
-                success_criteria=[line.strip() for line in criteria.splitlines() if line.strip()],
+                name=name.strip() or (goal.strip().splitlines()[0][:40] if goal.strip() else "自定义任务"),
+                user="",
+                goal=goal.strip() or "按用户输入执行",
+                success_criteria=criteria_lines or list(DEFAULT_SUCCESS_CRITERIA),
                 machine_checks=[line.strip() for line in machine_checks.splitlines() if line.strip()],
                 input_scope=[line.strip() for line in input_scope.splitlines() if line.strip()],
                 output_location=output_location.strip(),
@@ -360,9 +406,9 @@ def _render_task_card_section() -> None:
                 max_steps=int(steps),
                 max_minutes=int(minutes),
                 max_cost_yuan=float(cost),
-                valid_minutes=int(valid_minutes),
-                rollback_note=rollback_note_value.strip(),
-                on_uncertain=uncertain.strip(),
+                valid_minutes=120,
+                rollback_note="",
+                on_uncertain="标记 UNKNOWN 并停下来问人",
             )
             errors = card.validate()
             if errors:
@@ -370,7 +416,144 @@ def _render_task_card_section() -> None:
                     st.error(error)
             else:
                 st.session_state["task_card"] = card.to_dict()
-                st.success("任务卡已启用；本轮及后续任务都会遵守，做完请清除。")
+                st.success("自定义任务卡已启用；要恢复自动模式请点上面的「恢复自动任务卡」。")
+                st.rerun()
+
+
+def _screenshot_label(path: str) -> str:
+    return Path(path).name if path else "不指定"
+
+
+def _render_skill_library_section() -> None:
+    """可选的任务技能库：保存步骤/截图，下次作为提示参考复用。"""
+    with st.expander("任务技能库（可复用）", expanded=False):
+        st.caption(
+            "把做过的任务保存成技能：步骤是可编辑的人话摘要，截图会复制到技能库。"
+            "复用只是给模型参考，仍要走当前任务卡、人工确认和 PIN。"
+        )
+
+        reference_id, _reference_steps = _reference_steps_from_state()
+        if reference_id:
+            reference_skill = skill_library.get_skill(reference_id)
+            if reference_skill:
+                st.info(f"已选择参考技能：{reference_skill.get('name', '')}")
+                if st.button("取消技能参考", key="clear_skill_reference", use_container_width=True):
+                    st.session_state.pop("skill_reference_id", None)
+                    st.rerun()
+
+        last = st.session_state.get("last_task") or {}
+        operations = last.get("operations") or []
+        candidates = list(last.get("screenshots") or [])
+        if not candidates and operations:
+            candidates = skill_library.screenshot_candidates(operations)
+
+        if operations:
+            st.markdown("**保存最近一次任务为技能**")
+            default_name = str(last.get("prompt") or "最近任务").splitlines()[0][:40]
+            form_nonce = uuid.uuid5(
+                uuid.NAMESPACE_DNS,
+                f"{last.get('prompt', '')}-{len(operations)}",
+            ).hex[:8]
+            with st.form(f"save_skill_form_{form_nonce}"):
+                name = st.text_input("技能名", value=default_name)
+                description = st.text_input(
+                    "适用场景（可选）",
+                    placeholder="例如：登录内部系统后导出报表",
+                )
+                steps = st.text_area(
+                    "大概步骤（可编辑）",
+                    value="\n".join(skill_library.steps_from_operations(operations)),
+                    height=140,
+                )
+                key_screenshots = st.multiselect(
+                    "关键截图（可选）",
+                    options=candidates,
+                    default=candidates[-1:] if candidates else [],
+                    format_func=_screenshot_label,
+                    help="只保存技能库副本；请确认截图里没有密码、验证码等敏感信息。",
+                )
+                final_options = ["", *candidates]
+                final_screenshot = st.selectbox(
+                    "最终成果截图（可选）",
+                    options=final_options,
+                    index=len(final_options) - 1 if candidates else 0,
+                    format_func=_screenshot_label,
+                )
+                save_skill = st.form_submit_button(
+                    "保存到技能库", type="primary", use_container_width=True
+                )
+            if save_skill:
+                try:
+                    saved = skill_library.save_skill(
+                        name=name,
+                        description=description,
+                        steps=steps,
+                        key_screenshots=key_screenshots,
+                        final_screenshots=[final_screenshot] if final_screenshot else [],
+                        task_card=last.get("card") or {},
+                    )
+                except (OSError, ValueError) as exc:
+                    st.error(f"保存技能失败：{exc}")
+                else:
+                    st.success(f"已保存技能：{saved.get('name', name)}")
+                    st.rerun()
+        else:
+            st.caption("完成一次任务后，这里会出现“保存为技能”的表单。")
+
+        skills = skill_library.list_skills()
+        if not skills:
+            st.caption("技能库还是空的。")
+            return
+
+        st.markdown("**已保存技能**")
+        skill_ids = [str(item.get("id")) for item in skills]
+        selected_id = st.selectbox(
+            "选择技能",
+            options=skill_ids,
+            format_func=lambda sid: next(
+                (str(item.get("name") or sid) for item in skills if item.get("id") == sid),
+                sid,
+            ),
+            key="skill_library_selected",
+        )
+        selected = skill_library.get_skill(selected_id)
+        if not selected:
+            return
+        st.text(skill_library.skill_to_text(selected))
+        preset = selected.get("task_card") or {}
+        if preset.get("allowed_actions"):
+            st.caption("上次允许动作：" + "、".join(preset["allowed_actions"]))
+        if preset.get("output_location"):
+            st.caption(f"上次输出位置：{preset['output_location']}")
+        for path in selected.get("key_screenshots", [])[:3]:
+            try:
+                st.image(path, caption="关键截图", width=220)
+            except Exception:  # noqa: BLE001 - 截图失效不影响技能列表
+                st.caption(f"截图无法预览：{Path(path).name}")
+        for path in selected.get("final_screenshots", [])[:2]:
+            try:
+                st.image(path, caption="最终成果截图", width=220)
+            except Exception:  # noqa: BLE001
+                st.caption(f"截图无法预览：{Path(path).name}")
+
+        confirm_delete = st.checkbox(
+            "我确认删除这个技能",
+            key=f"delete_skill_confirm_{selected_id}",
+        )
+        cols = st.columns(2)
+        if cols[0].button("下次任务参考此技能", key=f"use_skill_{selected_id}", use_container_width=True):
+            st.session_state["skill_reference_id"] = selected_id
+            st.rerun()
+        if cols[1].button(
+            "删除技能",
+            key=f"delete_skill_{selected_id}",
+            disabled=not confirm_delete,
+            use_container_width=True,
+        ):
+            if skill_library.delete_skill(selected_id):
+                if st.session_state.get("skill_reference_id") == selected_id:
+                    st.session_state.pop("skill_reference_id", None)
+                st.success("技能已删除。")
                 st.rerun()
 
 
@@ -565,6 +748,8 @@ with st.sidebar:
     st.divider()
     _render_task_card_section()
     st.divider()
+    _render_skill_library_section()
+    st.divider()
     _render_batch_section()
 
     st.divider()
@@ -634,14 +819,25 @@ for index, message in enumerate(message_list):
 _render_hitl_block(st.session_state["agent"])
 
 if prompt:
+    skill_id, reference_steps = _reference_steps_from_state()
     active_card = TaskCard.from_dict(st.session_state.get("task_card"))
     if active_card is None:
-        st.warning("请先在侧边栏启用任务卡：每个任务都必须有目标、成功判据、范围和预算。")
-        st.stop()
-    errors = active_card.validate()
-    if errors:
-        st.error("任务卡当前不合法，请先修正：" + "；".join(errors))
-        st.stop()
+        # 默认路径：不要求用户先填表，直接按输入生成快速任务卡。
+        active_card = TaskCard.from_prompt(prompt, reference_steps=reference_steps)
+    else:
+        errors = active_card.validate()
+        if errors:
+            st.error("自定义任务卡当前不合法，请先修正：" + "；".join(errors))
+            st.stop()
+        if reference_steps:
+            active_card.reference_steps = list(
+                dict.fromkeys([*active_card.reference_steps, *reference_steps])
+            )
+        if active_card.goal in {"按用户输入执行", "按用户输入完成一次电脑操作"}:
+            active_card.goal = prompt
+
+    if skill_id:
+        skill_library.mark_skill_used(skill_id)
 
     st.chat_message("user").write(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
@@ -664,6 +860,8 @@ if prompt:
             st.error(f"生成回答失败：{exc}")
             st.caption("这一轮已中断；下次提问前会自动修复本轮留下的未完成工具调用，可以直接继续。")
             content, operations = "", []
+
+    _remember_last_task(active_card, operations, prompt)
 
     # 有操作等待确认时，本轮先不写历史，避免和确认后的结果重复
     if st.session_state.get("pending_hitl"):

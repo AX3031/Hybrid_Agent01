@@ -2,7 +2,7 @@
 
 基于 **LangChain 1.x `create_agent`（LangGraph）** 构建的工具调用型本地电脑助手：支持系统信息查询、文件读写与搜索、进程查看、命令执行（需确认）、截屏与鼠标键盘/窗口控制（需确认），以及 Streamlit 对话界面。
 
-> 小企业版 P0 守卫层已接入：任务卡（每任务必填、含机器判据）、只读总开关、批次整批回滚与回滚边界、预算急停、审计回放、单任务锁、第二主体审批口令（PIN 验签）。入口文档见 [docs/small-business-p0/00-进度备忘录.md](docs/small-business-p0/00-进度备忘录.md)。
+> 小企业版 P0 守卫层已接入：任务卡（默认自动生成，可选机器判据）、任务技能库（步骤/截图复用）、只读总开关、批次整批回滚与回滚边界、预算急停、审计回放、单任务锁、第二主体审批口令（PIN 验签）。入口文档见 [docs/small-business-p0/00-进度备忘录.md](docs/small-business-p0/00-进度备忘录.md)。
 >
 > 这是一份面向开发者的项目入口文档。5 分钟速览见 [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)；深入原理、配置项、扩展步骤与技术债见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -18,7 +18,7 @@
 | 把项目跑起来 | 本文第 4 节 + 第 7 节 | 15 分钟 |
 | 改代码/加功能 | [ARCHITECTURE](docs/ARCHITECTURE.md) 第 5、6、13 节 | 30–60 分钟 |
 | 想懂“工具失败为什么不再停”、或要跑回归验证 | [入门讲解](docs/agent-resilience/01-入门讲解-失败重试与结果验证.md) + [验证复盘](docs/agent-resilience/02-验证与交付复盘.md) | 20–30 分钟 |
-| 想懂任务卡/批次回滚/预算急停/PIN 怎么落地 | [小企业版 P0 进度备忘录](docs/small-business-p0/00-进度备忘录.md) + 对应 01–09 入门讲解 | 30–60 分钟 |
+| 想懂任务卡/批次回滚/预算急停/PIN/技能库怎么落地 | [小企业版 P0 进度备忘录](docs/small-business-p0/00-进度备忘录.md) + 对应 01–10 入门讲解 | 30–60 分钟 |
 | 排障/上线 | [ARCHITECTURE](docs/ARCHITECTURE.md) 第 10、11、12 节 | 按需 |
 
 **文档地图**
@@ -34,7 +34,7 @@
 | [docs/SECURITY_REPORT_2026-10-27.md](docs/SECURITY_REPORT_2026-10-27.md) | 当前安全性评估（2026-10-27）：实际控制、残余风险、攻击场景与加固顺序 |
 | [docs/AGENT_SECURITY_PLAYBOOK.md](docs/AGENT_SECURITY_PLAYBOOK.md) | Agent 安全实战经验：六层防御、十二条经验、HITL 分级、提示词注入、反模式、30/60/90 路线 |
 | [docs/OMNIPILOT_INTEGRATION_REPORT.md](docs/OMNIPILOT_INTEGRATION_REPORT.md) | OmniPilot 桌面控制接入报告（小白版）：做了什么、怎么接入、怎么用、不能怎么用、风险 |
-| [docs/small-business-p0/](docs/small-business-p0/00-进度备忘录.md) | 小企业版 P0：任务卡、只读、批次回滚、预算急停、审计回放、单任务锁、第二主体（入门讲解 + 验收复盘） |
+| [docs/small-business-p0/](docs/small-business-p0/00-进度备忘录.md) | 小企业版 P0：任务卡（默认自动）、技能库、只读、批次回滚、预算急停、审计回放、单任务锁、第二主体（入门讲解 + 验收复盘） |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更日志（Keep a Changelog 格式，未发布改动在 `[Unreleased]`） |
 
@@ -90,14 +90,15 @@
 | 危险命令与可执行文件拦截 | ✅ 已接入 | `safety.py` 的 `check_command` / `check_write_suffix`；复制/移动目标与目录树也会检查 |
 | 项目自身写保护 | ✅ 已接入 | `safety.guard_path(..., for_write=True)`：禁止 Agent 写 `agent/`、`config/`、`prompts/`、`scripts/`、`utils/`、`model/`、`memorys/`、`env_patch/`、`tests/`、`.venv/`、`.git/`、`logs/` 等 |
 | 任务预算与硬上限 | ✅ 已接入 | 任务卡预算（默认 30 步 / 10 分钟 / 2 元）+ `ToolCallLimitMiddleware` 100 步硬上限 |
-| 任务卡（目标/判据/机器判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；**每个新任务必须启用**；写入/命令/打开类必须有机器判据 |
-| 任务结束机器判据 | ✅ 已接入 | `agent/guard/criteria.py` + `ReactAgent` 的 `verification` 事件；未通过/未确认/工具失败不能算完成 |
+| 任务卡（目标/判据/机器判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；**默认按输入自动生成快速卡**，需要时再打开高级表单；机器判据可选 |
+| 任务技能库（步骤/截图复用） | ✅ 已接入 | `agent/skill_library.py` + 侧边栏「任务技能库」；保存人话步骤、关键截图、最终成果截图；复用只作提示，不自动执行 |
+| 任务结束机器判据 | ✅ 已接入 | `agent/guard/criteria.py` + `ReactAgent` 的 `verification` 事件；未通过/未确认/工具失败不能算完成；未配置判据按人工确认验收 |
 | 回滚边界说明 | ✅ 已接入 | `agent/guard/scope.py`；任务卡、确认卡片、文档都明确“命令/GUI/永久删除不可回滚” |
 | 只读总开关 | ✅ 已接入 | `config/agent.yml` 的 `read_only` + 侧边栏开关 + `agent/guard/policy.py` |
 | 批次号 + 整批回滚 | ✅ 已接入 | `agent/guard/journal.py` + `.agent_state/batches/` + 侧边栏「批次与回滚」 |
 | 预算与急停 | ✅ 已接入 | `agent/guard/state.py`、`agent/guard/middlewares.py`；`STOP` 文件与界面急停按钮 |
 | 第二主体审批口令（PIN） | ✅ 已接入 | `agent/guard/approval.py` + `scripts/setup_approval_pin.py`；R2/R3 动作需要；执行侧验签并绑定任务/批次/动作 |
-| GUI 语义禁令 | ✅ 已接入 | 任务卡禁止“发送/提交/付款”时，所有 GUI 输入类动作被保守拒绝；`run_command`/`open_path` 仍需人工确认 + PIN |
+| GUI 语义禁令 | ✅ 已接入 | 自定义任务卡禁止“发送/提交/付款”时，所有 GUI 输入类动作被保守拒绝；快速任务卡默认不包含这些词，因此 GUI 默认可用但仍需人工确认 + PIN；`run_command`/`open_path` 仍需人工确认 + PIN |
 | 审计与回放 | ✅ 已接入 | `utils/audit_logger.py` 扩展字段 + 批次回放 UI |
 | 单任务全局锁 | ✅ 已接入 | `agent/guard/lock.py` + `ReactAgent` 的 `task_lock` |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
@@ -220,7 +221,8 @@ uv run streamlit run app.py
 左侧栏还提供：
 
 - **安全开关**：只读模式、急停/解除急停、审批口令状态；
-- **任务卡**：填写目标、成功判据、输入/输出范围、允许/禁止动作、预算与有效期；没有任务卡时写操作会被拒绝；
+- **任务卡（可选，默认自动）**：默认按输入生成快速卡；需要限定目录、预算、动作或机器判据时，再打开“自定义任务卡（高级）”；
+- **任务技能库**：把最近任务保存为可复用的步骤 + 截图；下次作为提示参考，不自动执行；
 - **批次与回滚**：查看最近任务的回放，勾选确认后一键撤销整批文件改动。
 
 记忆方式的说明：
@@ -266,6 +268,7 @@ project2/
 ├── agent/
 │   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流、会话自愈、单任务锁入口
 │   ├── resilience.py           # ✅ 悬空 tool_call 的识别与修复
+│   ├── skill_library.py        # ✅ 任务技能库：步骤/截图/复用参考
 │   ├── guard/                  # ✅ 小企业版 P0 守卫层
 │   │   ├── task_card.py        # ✅ 任务卡结构 / 机器判据校验 / 提示词
 │   │   ├── criteria.py         # ✅ 机器判据解析与执行
@@ -299,7 +302,7 @@ project2/
 │   └── audit_logger.py         # ⚙️ 工具调用审计日志
 ├── config/                     # ⚙️ model / prompts / agent 配置
 ├── prompts/                    # ⚙️ 系统提示词、报告提示词
-├── data/                       # external/ 下为业务 CSV
+├── data/                       # external/ 下为业务 CSV；task_skills/ 为本地技能库（git 忽略）
 ├── logs/                       # 按日日志
 ├── env_patch/                  # ⚙️ 虚拟环境补丁（.pth + sitecustomize.py）
 ├── scripts/
@@ -355,7 +358,8 @@ project2/
 | 调整自动重试范围/条件 | `agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` 与 `_should_retry_tool_error` |
 | 调整结果校验范围 | `agent/tools/verification.py` 的 `_CHECKERS` 与 `_SUCCESS_PREFIXES` |
 | 只读模式 | 侧边栏「安全开关」，或 `config/agent.yml` 的 `read_only`；临时演练用 `AGENT_READ_ONLY=1` |
-| 任务卡 | 侧边栏「任务卡」；**每个新任务必须启用**；目标/成功判据/机器判据/范围/预算，写入类缺机器判据不能启用 |
+| 任务卡 | 侧边栏「任务卡（可选，默认自动）」；默认快速卡，只有需要时才打开“自定义任务卡（高级）”；机器判据可选 |
+| 任务技能库 | 侧边栏「任务技能库」；数据在 `data/task_skills/`（git 忽略） |
 | 任务预算默认值 | `config/agent.yml` 的 `task_defaults`（步数/分钟/费用） |
 | 模型单价（费用估算） | `config/agent.yml` 的 `model_prices` |
 | 急停 / 解除急停 | 侧边栏「安全开关」，或手动创建/删除 `.agent_state/STOP` |
@@ -393,9 +397,10 @@ project2/
 15. **费用上限依赖 usage_metadata**：供应商不返回 usage 时只记录调用次数，不估算费用；此时依赖步数/时长上限。
 16. **单任务锁是单机文件锁**：只对同一台机器、同一个状态目录生效；不是分布式锁；等待人工确认的间隙会释放锁，另一个任务理论上可插队。
 17. **批次回滚只覆盖文件类写操作**：`run_command` 内部修改的文件、`open_path` 和 `computer_use` 的应用内状态不在回滚范围；界面和任务卡会明确显示。
-18. **每个新任务都必须有任务卡**：只读问答也需要选“读”并写成功判据；写入/命令/打开类还必须有机器判据。没有卡时界面会阻止发送，代码层 `start_task` 也会拒绝。
-19. **`.env` 仍可能被读工具读取**：本轮只禁止“写项目源码/配置/日志”，没有禁止读 `.env`；敏感密钥应移出工作区，或等下一轮增加秘密文件读取拦截。
-20. **GUI 语义禁令有边界**：任务卡禁止“发送/提交/付款”会拦 GUI 输入类动作；`run_command`/`open_path` 内部是否发送/付款，系统无法语义判断，仍靠人工确认 + PIN。
+18. **任务卡默认自动，但技能库不是自动工作流**：界面会按输入生成快速卡，`start_task` 仍要求有卡；机器判据可选，未配置时按人工确认验收。技能库只保存步骤/截图，无法保证旧步骤在新软件版本上仍适用。
+19. **秘密文件读取仍未拦截**：当前只禁止写入项目源码/配置/日志/技能库等；`.env`、`*.key`、`*.pem`、凭据文件仍可能被 `read_text_file`/`search_text` 读取。已确认应默认拒绝秘密文件读取，业务确需时再走独立敏感读取确认 + PIN + 脱敏，但尚未实现；敏感密钥最好移出工作区。
+20. **GUI 语义禁令有边界**：只有自定义任务卡保留“发送/提交/付款”时才会拦 GUI 输入类动作；快速任务卡默认不包含这些词。`run_command`/`open_path` 内部是否发送/付款，系统无法语义判断，仍靠人工确认 + PIN。
+21. **技能库不是自动工作流，也没有加密**：`data/task_skills/` 保存脱敏步骤和截图副本；步骤会省略 `type_text`/`clipboard_set`、命令原文和 URL，但截图可能含业务/隐私信息；Agent 不能写技能库，本机用户仍可读，保存前请自行确认截图内容。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 
@@ -423,6 +428,7 @@ project2/
 | [docs/small-business-p0/07-第二主体审批口令.md](docs/small-business-p0/07-第二主体审批口令.md) | PIN 哈希、签名凭证、审批流程、威胁边界 |
 | [docs/small-business-p0/08-交付复盘与验收清单.md](docs/small-business-p0/08-交付复盘与验收清单.md) | P0 验收对照、用例结果、反思、runbook、下一步 |
 | [docs/small-business-p0/09-安全边界与机器判据.md](docs/small-business-p0/09-安全边界与机器判据.md) | 项目写保护、审批验签、复制/移动后缀、GUI 语义禁令、任务卡全覆盖、机器判据、回滚边界 |
+| [docs/small-business-p0/10-任务卡简化与技能库.md](docs/small-business-p0/10-任务卡简化与技能库.md) | 快速任务卡、机器判据可选、技能库步骤/截图、复用方式与安全边界 |
 | [docs/06-长期改造经验与方法论.md](docs/06-长期改造经验与方法论.md) | 长任务改造方法论：任务契约、评估尺、阶段门、复盘与反幻觉 |
 | [docs/agent-resilience/00-进度备忘录.md](docs/agent-resilience/00-进度备忘录.md) | 循环韧性改造的进度、决策与已知缺口 |
 | [docs/agent-resilience/01-入门讲解-失败重试与结果验证.md](docs/agent-resilience/01-入门讲解-失败重试与结果验证.md) | 入门讲解：ReAct 循环、失败四根因、重试规则、结果校验、会话自愈 |

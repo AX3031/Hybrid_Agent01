@@ -629,7 +629,7 @@ uv remove omnipilot-agent
 | Agent 调用 `screen_size` 不弹确认 | 通过 |
 | Agent 调用 `screenshot` 弹确认 | 通过 |
 | 拒绝截图后不执行 | 通过 |
-| 小企业版 P0 守卫层离线用例（含桌面 R2 需 PIN） | 67/67 通过（P0 47/47）；证据在 `docs/small-business-p0/evidence/` |
+| 小企业版 P0 守卫层离线用例（含桌面 R2 需 PIN） | 75/75 通过（P0 51/51）；证据在 `docs/small-business-p0/evidence/` |
 | 拒绝截图后模型不编造屏幕内容 | 通过 |
 | 批准截图后模型正确描述图片 | 通过 |
 | 截图 base64 不进入操作记录/审计日志 | 通过 |

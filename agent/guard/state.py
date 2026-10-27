@@ -162,8 +162,8 @@ def start_task(
     card_dict = _card_to_dict(card)
     if not card_dict and not resume:
         raise ValueError(
-            "每个新任务都必须启用任务卡（任务名 / 目标 / 成功判据 / 允许范围 / 预算）；"
-            "只读任务也请在允许动作里选择「读」。"
+            "每个新任务都必须有任务卡；界面会按输入自动生成快速卡，"
+            "直接调用 API 时请显式传入 TaskCard（可用 TaskCard.from_prompt(...)）。"
         )
     if card_dict:
         errors = TaskCard.from_dict(card_dict).validate()  # type: ignore[union-attr]
@@ -179,7 +179,7 @@ def start_task(
             task = _load_snapshot(thread_id)
             if task is None:
                 if not card_dict:
-                    raise ValueError("恢复任务失败：没有找到任务卡快照，请重新启用任务卡。")
+                    raise ValueError("恢复任务失败：没有找到任务卡快照，请重新发起任务。")
                 task = _new_task(thread_id, card_dict, batch_id)
             else:
                 idle = max(0.0, time.time() - task.saved_at)
@@ -390,12 +390,16 @@ def record_tool_status(status: str) -> None:
 
 
 def mark_verification(status: str) -> None:
-    """记录任务结束时的机器判据结论；非 passed 时任务状态不再是 finished。"""
+    """记录任务结束时的机器判据结论。
+
+    `not_required` 表示这次没有配置机器判据（快速任务常见），按人工确认
+    和操作记录验收；只有配置了判据却失败/未确认时才阻断 finished。
+    """
     with _LOCK:
         if _CURRENT is None:
             return
         _CURRENT.verification_status = str(status or "missing")
-        if _CURRENT.verification_status != "passed":
+        if _CURRENT.verification_status not in {"passed", "not_required"}:
             _CURRENT.status = f"verification_{_CURRENT.verification_status}"
         _persist(_CURRENT)
 
