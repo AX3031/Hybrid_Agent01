@@ -7,7 +7,7 @@
 1. `docs/PROJECT_OVERVIEW.md`：先建立全局（定位、分层、主流程、关键约束）。
 2. `README.md` 的「快速开始」「配置入口速查」：只在需要命令/环境变量时读。
 3. 需要电脑操作的功能清单、参数与安全边界时，读 `docs/OS_TOOLS.md`。
-4. 需要安全评估、威胁模型、技术债与改进优先级时，读 `docs/SECURITY_REPORT.md`。
+4. 需要安全评估、威胁模型、技术债与改进优先级时，读 `docs/SECURITY_REPORT.md`（2026-10-26 基线）；需要当前真实安全性、残余缺口与加固顺序时，读 `docs/SECURITY_REPORT_2026-10-27.md`。
 5. 需要 Agent 安全设计的通用经验、反模式和落地路线时，读 `docs/AGENT_SECURITY_PLAYBOOK.md`。
 6. 需要了解 OmniPilot 桌面控制的接入背景、用法、限制与风险时，读 `docs/OMNIPILOT_INTEGRATION_REPORT.md`（小白版报告）。
 7. 要改工具失败/重试/结果校验/会话自愈，或要跑回归验证时，读 `docs/agent-resilience/00-进度备忘录.md` + `01-入门讲解-失败重试与结果验证.md` + `02-验证与交付复盘.md`；回归命令是 `python scripts/verify_agent_resilience.py`。

@@ -119,7 +119,8 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 | 怎么验证改动没退化？ | [agent-resilience/02-验证与交付复盘.md](agent-resilience/02-验证与交付复盘.md) + `scripts/verify_agent_resilience.py`；P0 用 [08-交付复盘](small-business-p0/08-交付复盘与验收清单.md) + `scripts/verify_small_business.py` |
 | 长任务改造的方法论？ | [06-长期改造经验与方法论.md](06-长期改造经验与方法论.md) |
 | 桌面控制（截图/键鼠/应用）怎么用？ | [OS_TOOLS.md](OS_TOOLS.md) 第 5.8–5.12 节 + [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统与安全模型) |
-| 安全能力、威胁模型、技术债与改进路线？ | [SECURITY_REPORT.md](SECURITY_REPORT.md) |
+| 安全能力、威胁模型、技术债与改进路线？ | [SECURITY_REPORT.md](SECURITY_REPORT.md)（2026-10-26 基线） |
+| 当前程序到底安全到什么程度、还有哪些真实缺口？ | [SECURITY_REPORT_2026-10-27.md](SECURITY_REPORT_2026-10-27.md) |
 | 怎么把 Agent 做得更安全可控？ | [AGENT_SECURITY_PLAYBOOK.md](AGENT_SECURITY_PLAYBOOK.md) |
 | OmniPilot 桌面控制怎么接入、怎么用、有什么风险？ | [OMNIPILOT_INTEGRATION_REPORT.md](OMNIPILOT_INTEGRATION_REPORT.md) |
 | 报告场景怎么切换？ | [ARCHITECTURE 第 8 节](ARCHITECTURE.md#8-报告场景与动态提示词) |

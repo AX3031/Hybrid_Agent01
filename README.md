@@ -30,7 +30,8 @@
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前状态的深度参考：模块、流程、配置、扩展、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构图（人看） |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明（普通人向 + 开发者参数） |
-| [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：能力矩阵、威胁模型、技术债与改进路线 |
+| [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告（2026-10-26 基线）：能力矩阵、威胁模型、技术债与改进路线 |
+| [docs/SECURITY_REPORT_2026-10-27.md](docs/SECURITY_REPORT_2026-10-27.md) | 当前安全性评估（2026-10-27）：实际控制、残余风险、攻击场景与加固顺序 |
 | [docs/AGENT_SECURITY_PLAYBOOK.md](docs/AGENT_SECURITY_PLAYBOOK.md) | Agent 安全实战经验：六层防御、十二条经验、HITL 分级、提示词注入、反模式、30/60/90 路线 |
 | [docs/OMNIPILOT_INTEGRATION_REPORT.md](docs/OMNIPILOT_INTEGRATION_REPORT.md) | OmniPilot 桌面控制接入报告（小白版）：做了什么、怎么接入、怎么用、不能怎么用、风险 |
 | [docs/small-business-p0/](docs/small-business-p0/00-进度备忘录.md) | 小企业版 P0：任务卡、只读、批次回滚、预算急停、审计回放、单任务锁、第二主体（入门讲解 + 验收复盘） |
@@ -401,6 +402,7 @@ project2/
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构总览图 |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明：工作区域、确认卡片、回收区、审计日志、参数表 |
 | [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：会做/能做/不会做/不能做、措施实现、STRIDE/OWASP 映射、技术债、改进路线 |
+| [docs/SECURITY_REPORT_2026-10-27.md](docs/SECURITY_REPORT_2026-10-27.md) | 当前安全性评估：P0 后的真实控制、残余风险、攻击场景、P0 对照、加固顺序 |
 | [docs/AGENT_SECURITY_PLAYBOOK.md](docs/AGENT_SECURITY_PLAYBOOK.md) | Agent 安全实战经验：六层防御、十二条经验、HITL 分级、提示词注入、反模式、30/60/90 路线 |
 | [docs/OMNIPILOT_INTEGRATION_REPORT.md](docs/OMNIPILOT_INTEGRATION_REPORT.md) | OmniPilot 桌面控制接入报告（小白版）：做了什么、实现方法、怎么用、不能怎么用、风险 |
 | [docs/small-business-p0/00-进度备忘录.md](docs/small-business-p0/00-进度备忘录.md) | 小企业版 P0 进度、P0 清单、验收方式、风险提醒 |

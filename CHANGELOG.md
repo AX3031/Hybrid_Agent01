@@ -18,6 +18,7 @@
 - `utils/audit_logger.py`：新增 `log_task_start` / `log_task_end` / `log_approval` / `log_guard_event`；`log_tool_call` 新增 `trace_id / task_id / batch_id / step_no / reversibility / approver / approval_token`。
 - `tests/test_small_business_guard.py`：新增 27 条 P0 守卫层用例（批次回滚、只读、任务卡、预算急停、锁、PIN、审计、退出码/复制哈希校验、中间件顺序、R2 无 PIN 凭证被拒）。
 - `scripts/verify_small_business.py`：跑全部用例、单独统计 P0 用例并输出 `docs/small-business-p0/evidence/verify-*.json`。
+- `docs/SECURITY_REPORT_2026-10-27.md`：新增当前安全性评估：P0 守卫层后的真实控制、残余风险（`.env` 可读、项目源码/配置/日志可写、审批参数入审计、复制/移动后缀绕过、GUI 禁止项不生效、无出口白名单等）、P0 对照与加固顺序。
 - `docs/small-business-p0/00–08`：进度备忘录 + 七块能力的入门讲解 + 交付复盘与验收清单。
 
 - `agent/tools/middleware.py`：新增 `tool_error_middleware`（`ToolErrorMiddleware`）—— 工具抛异常时转成 `ToolMessage(status="error")`，内容以「工具 xxx 执行失败」开头，ReAct 循环不再被整轮打断；异常类型与一句话原因写日志，堆栈不发给模型。
