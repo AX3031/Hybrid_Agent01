@@ -23,7 +23,7 @@ from agent.tools.os_tools import (
 from agent.tools.middleware import (
     monitor_tool, log_before_model, report_prompt_switch,
     pii_middleware_email, pii_middleware_phone, model_fallback_middleware,
-    tool_error_middleware, tool_retry_middleware,
+    tool_error_middleware, tool_retry_middleware, trim_screenshot_history,
 )
 from agent.guard import state as guard_state
 from agent.guard import criteria
@@ -126,6 +126,8 @@ class ReactAgent:
                 model_fallback_middleware,
                 # 预算/急停：在每次模型调用前短路，不再给模型新的决策机会
                 guard_model,
+                # 历史截图只保留最近几张再发给模型（桌面任务最主要的 token 花销）
+                trim_screenshot_history,
                 pii_middleware_email,
                 pii_middleware_phone,
                 # 工具异常 → error ToolMessage（保住 ReAct 循环，不让整轮崩掉）

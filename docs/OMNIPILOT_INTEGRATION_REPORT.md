@@ -558,6 +558,8 @@ uv remove omnipilot-agent
 
 ### 8.8 不要指望 100% 精准
 
+> **2026-10-27 更新**：本节只描述 OmniPilot 工具层本身。项目已另接 Windows 自带的 UIA 控件树与系统 OCR（`agent/tools/uia_bridge.ps1`，见 [OS_TOOLS 5.13](OS_TOOLS.md)），模型现在“先拿控件、再拿文字、坐标是最后手段”；OmniPilot 自己仍不提供控件树/OCR。本报告正文保留接入当时的快照（当时是 18 个动作）。
+
 - 没有控件树、没有 OCR、没有窗口选择器；
 - 主要靠截图 + 坐标 + 模板匹配；
 - 多显示器、DPI 缩放、窗口移动、动画未完成都可能让坐标偏移；
@@ -829,7 +831,7 @@ OmniPilot 和 pyautogui 代码层面是跨平台的，但**本项目只在 Windo
 
 ### P2：提升准确率
 
-- 接入 Windows UI Automation（UIA）或 OCR，用“控件/文字”定位，而不是纯坐标；
+- 接入 Windows UI Automation（UIA）或 OCR，用“控件/文字”定位，而不是纯坐标（**已落地**：见 `agent/tools/ui_bridge.py` + `uia_bridge.ps1`、OS_TOOLS 5.13）；
 - 多显示器/DPI 校准；
 - 截图区域裁剪 + 坐标偏移自动换算；
 - 动作后自动截图验证，形成“观察 → 动作 → 验证”的闭环。

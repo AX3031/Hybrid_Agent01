@@ -611,6 +611,30 @@ def _describe_computer_use(action: str, args: dict) -> tuple[str, str]:
         return "关闭应用", f"关闭「{args.get('name', '')}」{force}。"
     if action == "app_list":
         return "查看运行中的应用", "列出当前运行的应用/进程，可能暴露你正在使用哪些软件。"
+    if action == "ui_windows":
+        return "查看窗口列表", "读取当前打开的窗口标题与位置，可能暴露你正在用的软件和文档名。"
+    if action == "ui_tree":
+        return (
+            "读取窗口控件",
+            f"读取「{args.get('window') or '当前前台窗口'}」的控件名字、类型和位置（密码框内容会被隐藏）。",
+        )
+    if action == "ui_wait":
+        target = args.get("name") or args.get("automation_id") or args.get("window") or "目标窗口"
+        return "等待界面就绪", f"最多等 {args.get('timeout', 10)} 秒，直到出现「{target}」。"
+    if action == "ui_click":
+        target = args.get("name") or args.get("automation_id") or "控件"
+        return "点击控件", f"在「{args.get('window') or '当前前台窗口'}」里点击控件「{target}」。"
+    if action == "ui_set_text":
+        target = args.get("name") or args.get("automation_id") or "控件"
+        return (
+            "向控件写入文字",
+            f"把「{_preview(args.get('text', ''))}」写进「{target}」。",
+        )
+    if action == "ocr_text":
+        where = args.get("region") or "整个屏幕"
+        return "识别屏幕文字", f"对 {where} 做文字识别，结果可能包含密码、聊天记录等隐私。"
+    if action == "click_text":
+        return "按屏幕文字点击", f"在屏幕上找到「{args.get('text', '')}」并点击它的中心。"
     return "控制桌面", "执行了一个桌面控制动作。"
 
 
@@ -637,6 +661,30 @@ def _computer_use_risk(action: str) -> str:
         return "会终止目标程序，未保存的数据可能丢失。系统关键进程会被拒绝关闭。"
     if action == "app_list":
         return "会读取当前运行的程序列表，可能暴露你正在使用哪些软件。"
+    if action in {"ui_windows", "ui_tree"}:
+        return (
+            "会读取窗口与控件信息（标题、控件名、位置、输入框内容），可能包含隐私；"
+            "密码框内容会被隐藏，但普通输入框的文字会原样返回。"
+        )
+    if action == "ocr_text":
+        return (
+            "会先截图再识别屏幕文字，识别结果可能包含密码、聊天记录、邮件等隐私；"
+            "图片会短暂落盘到 logs/omnipilot/screenshots，不会写进审计正文。"
+        )
+    if action == "ui_wait":
+        return "只轮询窗口/控件是否出现，不修改任何内容。"
+    if action == "ui_click":
+        return (
+            "会按控件名在目标窗口里点击（优先 InvokePattern，必要时点控件中心）。"
+            "终端/脚本宿主/注册表等系统工具窗口会被拒绝。"
+        )
+    if action == "ui_set_text":
+        return (
+            "会把文字写进目标控件（优先直接赋值，否则点击后全选键入）。"
+            "密码框会被拒绝；普通输入框的原内容可能被覆盖。"
+        )
+    if action == "click_text":
+        return "会先 OCR 找到屏幕文字再点击其中心；文字匹配不准时可能点到附近按钮。"
     if action in {"screen_size", "locate_image", "wait"}:
         return "只读取屏幕尺寸/查找图片/等待，不修改任何内容。"
     return "会操作真实桌面，请确认坐标、目标窗口和文字内容。"
@@ -655,6 +703,20 @@ def _computer_use_target(action: str, args: dict) -> str:
         return str(args.get("name", ""))
     if action == "locate_image":
         return str(args.get("image_path", ""))
+    if action in {"ui_tree", "ui_click", "ui_set_text"}:
+        target = str(args.get("name") or args.get("automation_id") or "")
+        window = str(
+            args.get("window") or (f"pid={args.get('pid')}" if args.get("pid") else "")
+        ).strip() or "当前前台窗口"
+        return f"{window} → {target}" if target else window
+    if action == "ui_windows":
+        return str(args.get("name_filter") or "全部可见窗口")
+    if action == "ui_wait":
+        return str(args.get("name") or args.get("automation_id") or args.get("window") or "当前前台窗口")
+    if action == "ocr_text":
+        return str(args.get("region") or "整个屏幕")
+    if action == "click_text":
+        return str(args.get("text", ""))
     return ""
 
 
@@ -804,21 +866,26 @@ def sanitize_tool_args(tool_name: str, args: dict) -> dict:
     if tool_name != "computer_use" or not isinstance(args, dict):
         return args
     action = str(args.get("action", ""))
-    if action in {"type_text", "clipboard_set"}:
+    if action in {"type_text", "clipboard_set", "ui_set_text"}:
         text = str(args.get("text", ""))
         return {**args, "text": f"***（已脱敏，{len(text)} 字符）"}
     return args
 
 
 def sanitize_tool_result(tool_name: str, args: dict, content: object) -> str:
-    """日志/审计用的结果脱敏；图片 base64 与剪贴板正文不落盘。"""
+    """日志/审计用的结果脱敏；图片 base64 与敏感读取正文不落盘。"""
     text = summarize_content_for_log(content)
-    if (
-        tool_name == "computer_use"
-        and isinstance(args, dict)
-        and args.get("action") == "clipboard_get"
-    ):
-        return f"***（剪贴板内容已脱敏，{len(text)} 字符）"
+    if tool_name == "computer_use" and isinstance(args, dict):
+        action = str(args.get("action", ""))
+        labels = {
+            "clipboard_get": "剪贴板内容",
+            "ui_tree": "控件树内容",
+            "ui_windows": "窗口列表",
+            "ocr_text": "OCR 识别文字",
+        }
+        label = labels.get(action)
+        if label:
+            return f"***（{label}已脱敏，{len(text)} 字符）"
     return text
 
 

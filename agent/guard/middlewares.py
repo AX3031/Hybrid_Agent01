@@ -24,6 +24,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from agent.guard import approval
 from agent.guard import policy
+from agent.guard import repeat_guard
 from agent.guard import state as guard_state
 from utils.logger_handler import logger
 
@@ -50,6 +51,18 @@ def guard_preflight(request, handler):
         logger.warning(f"[guard]预检拒绝 {tool_name}：{reason}")
         return _error_message(request, tool_name, reason)
     return handler(request)
+
+
+def _append_note(result, note: str):
+    """把“换策略”提醒附在工具结果后面；不改变结果本身的成功/失败状态。"""
+    if not note or not isinstance(result, ToolMessage):
+        return result
+    content = result.content
+    if isinstance(content, str):
+        return result.model_copy(update={"content": f"{content}\n\n{note}"})
+    if isinstance(content, list):
+        return result.model_copy(update={"content": [*content, {"type": "text", "text": note}]})
+    return result
 
 
 @wrap_tool_call
@@ -92,8 +105,17 @@ def guard_execute(request, handler):
         logger.warning(f"[guard]执行前拒绝 {tool_name}：{reason}")
         return _error_message(request, tool_name, reason)
 
+    # 原地打转检测：同一处反复做同一动作时先提醒、再拦截，避免继续烧预算。
+    task = guard_state.current()
+    repeats, advice, loop_reason = repeat_guard.note_action(
+        task.batch_id if task else "", tool_name, args
+    )
+    if loop_reason:
+        logger.warning(f"[guard]重复动作拦截 {tool_name}（第 {repeats} 次）")
+        return _error_message(request, tool_name, loop_reason)
+
     guard_state.consume_step()
-    return handler(request)
+    return _append_note(handler(request), advice)
 
 
 @wrap_model_call

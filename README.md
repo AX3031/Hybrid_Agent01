@@ -89,8 +89,10 @@
 | 删除回收区 / 覆盖备份 | ✅ 已接入 | `.agent_trash` / `.agent_backup` |
 | 危险命令与可执行文件拦截 | ✅ 已接入 | `safety.py` 的 `check_command` / `check_write_suffix`；复制/移动目标与目录树也会检查 |
 | 项目自身写保护 | ✅ 已接入 | `safety.guard_path(..., for_write=True)`：禁止 Agent 写 `agent/`、`config/`、`prompts/`、`scripts/`、`utils/`、`model/`、`memorys/`、`env_patch/`、`tests/`、`.venv/`、`.git/`、`logs/` 等 |
-| 任务预算与硬上限 | ✅ 已接入 | 任务卡预算（默认 30 步 / 10 分钟 / 2 元）+ `ToolCallLimitMiddleware` 100 步硬上限 |
-| 任务卡（目标/判据/机器判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；**默认按输入自动生成快速卡**，需要时再打开高级表单；机器判据可选 |
+| 任务预算与硬上限 | ✅ 已接入 | 任务卡预算（普通任务默认 30 步 / 10 分钟 / 2 元；要动鼠标键盘的桌面任务默认 60 步 / 20 分钟 / 5 元）+ `ToolCallLimitMiddleware` 100 步硬上限 |
+| 任务卡（目标/判据/机器判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；**默认按输入自动生成快速卡**，需要时再打开高级表单；机器判据可选；“打开微信，登录后给某人发个你好”这类**一连串要求会自动拆成子目标**逐项推进 |
+| 原地打转拦截 | ✅ 已接入 | `agent/guard/repeat_guard.py`：同一区域反复做同一动作时第 3 次提醒换策略、第 6 次拒绝执行，避免在“找图标”上反复烧预算 |
+| 截图历史裁剪 | ✅ 已接入 | `agent/tools/middleware.py` 的 `trim_screenshot_history`：只把最近 N 张截图（默认 1）发给模型，历史图片换成文字占位；审计与界面仍保留原图 |
 | 任务技能库（步骤/截图复用） | ✅ 已接入 | `agent/skill_library.py` + 侧边栏「任务技能库」；保存人话步骤、关键截图、最终成果截图；**同名保存视为更新**，可随时「编辑此技能」改名/改步骤/换截图；复用只作提示，不自动执行 |
 | 任务结束机器判据 | ✅ 已接入 | `agent/guard/criteria.py` + `ReactAgent` 的 `verification` 事件；未通过/未确认/工具失败不能算完成；未配置判据按人工确认验收 |
 | 回滚边界说明 | ✅ 已接入 | `agent/guard/scope.py`；任务卡、确认卡片、文档都明确“命令/GUI/永久删除不可回滚” |
@@ -102,7 +104,7 @@
 | 审计与回放 | ✅ 已接入 | `utils/audit_logger.py` 扩展字段 + 批次回放 UI |
 | 单任务全局锁 | ✅ 已接入 | `agent/guard/lock.py` + `ReactAgent` 的 `task_lock` |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
-| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py` |
+| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，168 条，其中 P0 守卫层 53 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
 | 模型调用前状态日志 | ✅ 已接入 | `agent/tools/middleware.py` → `log_before_model` |
 | 报告场景动态提示词 | ✅ 已接入 | `fill_context_for_report` + `report_prompt_switch` |
 | 联网搜索（百度） | ✅ 已接入 | `agent/tools/agent_tools.py` → `web_search_baidu` |
@@ -112,7 +114,8 @@
 | 天气 / 城市 / 用户 ID / 月份 | 🧪 模拟 | `agent/tools/agent_tools.py` 中返回随机或固定值 |
 | 会话记忆（短期 / 本地 JSON / PostgreSQL） | ✅ 已接入 | `app.py` 输入框左侧按钮切换；`memorys/memory_factory.py`、`file_checkpointer.py`、`postgres_checkpointer.py` |
 | 文件上传 UI | 🧪 预留 | `app_file_uploader.py` 当前为空壳 |
-| 桌面控制（截图 / 鼠标 / 键盘 / 剪贴板 / 应用） | ✅ 已接入（除只读动作外需确认） | `agent/tools/computer_use.py`（复用 OmniPilot 工具层）；Windows 下 `app_open` 打不开时回退 `app_open_start_menu` 从开始菜单按中英文名启动 |
+| 桌面控制（截图 / 鼠标 / 键盘 / 剪贴板 / 应用） | ✅ 已接入（除只读动作外需确认） | `agent/tools/computer_use.py`（OmniPilot 工具层 + Windows UIA/OCR，26 个动作）；控件级 `ui_tree`/`ui_click`/`ui_set_text`、OCR `ocr_text`/`click_text`，坐标点击只是最后的退路；Windows 下 `app_open` 未成功时可改用 `app_open_start_menu` |
+| 控件级桌面操作（UIA + OCR） | ✅ 已接入（Windows，零新增依赖） | `agent/tools/uia_bridge.ps1` + `ui_bridge.py`：拿控件名字/类型/位置直接点，不再靠估算像素；拒绝终端/注册表等系统工具窗口，密码框不读不写 |
 | 鉴权 / 多用户 / 限流 | ❌ 未实现 | — |
 
 ---
@@ -277,11 +280,14 @@ project2/
 │   │   ├── state.py            # ✅ 预算 / 急停 / 会话快照 / 审批上下文 / 工具失败计数
 │   │   ├── journal.py          # ✅ 批次日志与整批回滚
 │   │   ├── lock.py             # ✅ 单任务文件锁
+│   │   ├── repeat_guard.py     # ✅ 原地打转检测（重复动作提醒与拦截）
 │   │   ├── approval.py         # ✅ PIN 哈希 / HMAC 凭证 / 验签绑定 / 审批目录保护
 │   │   └── middlewares.py      # ✅ 守卫层中间件（含 R2/R3 验签）
 │   └── tools/
 │       ├── os_tools.py         # ✅ 13 个电脑信息与文件操作工具
-│       ├── computer_use.py     # ✅ 1 个桌面控制工具（19 个动作，复用 OmniPilot）
+│       ├── computer_use.py     # ✅ 1 个桌面控制工具（26 个动作，OmniPilot + UIA/OCR）
+│       ├── ui_bridge.py        # ✅ UIA/OCR 桥（Python 侧：超时/解析/错误归一）
+│       ├── uia_bridge.ps1      # ✅ PowerShell 桥：调 Windows UIAutomation + 内置 OCR
 │       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
 │       ├── verification.py     # ✅ 文件操作结果的后置校验
 │       ├── agent_tools.py      # ✅ 7 个业务工具
@@ -360,7 +366,9 @@ project2/
 | 只读模式 | 侧边栏「安全开关」，或 `config/agent.yml` 的 `read_only`；临时演练用 `AGENT_READ_ONLY=1` |
 | 任务卡 | 侧边栏「任务卡（可选，默认自动）」；默认快速卡，只有需要时才打开“自定义任务卡（高级）”；机器判据可选 |
 | 任务技能库 | 侧边栏「任务技能库」；数据在 `data/task_skills/`（git 忽略） |
-| 任务预算默认值 | `config/agent.yml` 的 `task_defaults`（步数/分钟/费用） |
+| 任务预算默认值 | `config/agent.yml` 的 `task_defaults`（步数/分钟/费用；`desktop_*` 为桌面类任务的单独默认值） |
+| 发给模型的历史截图保留几张 | `config/agent.yml` 的 `vision_history.keep_recent_screenshots`（默认 1；`-1` 不裁剪） |
+| 重复动作拦截阈值 | `agent/guard/repeat_guard.py` 的 `_SOFT_REPEATS` / `_HARD_REPEATS` / `_RADIUS` |
 | 模型单价（费用估算） | `config/agent.yml` 的 `model_prices` |
 | 急停 / 解除急停 | 侧边栏「安全开关」，或手动创建/删除 `.agent_state/STOP` |
 | 设置审批口令（PIN） | `uv run python scripts/setup_approval_pin.py`（只存哈希） |
@@ -382,14 +390,14 @@ project2/
 
 1. **默认是短期记忆**：进程内按会话 ID 保留上下文，刷新页面或重启即丢失；本地记忆/PostgreSQL 模式可跨进程恢复（PostgreSQL 需配置连接串）。
 2. **流式输出是“消息块级”而非 token 级**：只输出 `AIMessage` 文本，用户问题与工具中间结果不回显；UI 按事件块渲染。
-3. **PII 脱敏覆盖不完整**：`PIIMiddleware` 只处理模型输入/输出；日志中 `computer_use` 的 `type_text`/`clipboard_set` 内容已做定向脱敏，其他工具参数仍未脱敏。
+3. **PII 脱敏覆盖不完整**：`PIIMiddleware` 只处理模型输入/输出；日志中 `computer_use` 的 `type_text`/`clipboard_set`/`ui_set_text` 参数与 `screenshot`/`clipboard_get`/`ui_tree`/`ui_windows`/`ocr_text` 的结果已做定向脱敏，其他工具参数仍未脱敏。
 4. **外部数据示例为空**：`data/external/records.csv` 为空，`fetch_external_data` 会查不到记录；CSV 解析也未处理带逗号的引号字段。
 5. **命令检查不是沙箱**：`run_command` 使用黑名单和工作区路径检查，精心构造的命令仍可能绕过；确认卡片是最后一道防线。
-6. **桌面控制不是 UI 自动化框架**：没有控件树/OCR，主要靠截图 + 坐标或模板匹配；多显示器、DPI 缩放或窗口移动可能导致坐标偏移。
-7. **截图会进入会话记忆**：截图以 base64 形式写入短期/JSON/PostgreSQL 记忆，连续截图会让会话体积变大，当前没有自动清理。
+6. **桌面控制仍不是完整的 UI 自动化框架**：已接入 Windows 自带的控件树（UIA）与 OCR，但控件树有深度/数量上限，自绘界面（WPS、部分网页/游戏）拿不到控件只能靠 OCR，提权窗口被 UIPI 拦住，非 Windows 不生效；多显示器、DPI 缩放或窗口移动仍可能让坐标偏移。
+7. **截图仍会进入会话记忆**：截图以 base64 形式写入短期/JSON/PostgreSQL 记忆，连续截图仍会让会话变大；现在只在**发给模型**时裁剪（只保留最近 N 张，`vision_history.keep_recent_screenshots`），checkpoint 本身不会回收。
 8. **桌面控制禁止启动终端/脚本宿主**：`app_open` 拒绝 `cmd`、PowerShell、WSL、注册表、磁盘工具等，避免绕过 `run_command`；需要执行命令时走 `run_command`。
 9. **工作区限制基于路径比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
-10. **界面保存会重写配置文件**：通过「工作区域」按钮保存时使用 `yaml.safe_dump`，`config/agent.yml` 中的注释会丢失。
+10. **UIA/OCR 桥是新增的攻击面**：`agent/tools/uia_bridge.ps1` 以 `-ExecutionPolicy Bypass` 起 PowerShell 读真实界面内容；**未标记为密码框**的输入框值会随 `ui_tree` 返回，临时 JSON 在本机短时存在后即删除；审计侧已脱敏但不是加密存储。脚本位于 `agent/`（Agent 工具禁写），模型改不了桥本身。
 11. **结果校验已补命令退出码，但仍不覆盖 GUI**：写文件、建目录、移动、复制、删除有确定性后置校验；`run_command` 校验退出码；`computer_use` / `open_path` 只能标“未确认”，需人看一眼。任务结束还会执行任务卡里的机器判据；但判据只能证明“文件/字段对上”，不能证明业务语义正确。
 12. **审批口令是“同机第二主体”**：现在 `guard_execute` 会验签并绑定任务/批次/动作，但 PIN 仍是同机、同浏览器；挡不住同一 Windows 用户下的恶意程序。需要带外审批时应升级方案。
 13. **日志仍可能含敏感内容**：`logs/` 已禁止 Agent 工具写入，但审计会记录工具参数/结果摘要；`log_approval` 仍会写原始动作参数，`read_text_file` 的摘要也可能落盘。日志读取面仍存在，WORM 未实现。
@@ -401,6 +409,8 @@ project2/
 19. **秘密文件读取仍未拦截**：当前只禁止写入项目源码/配置/日志/技能库等；`.env`、`*.key`、`*.pem`、凭据文件仍可能被 `read_text_file`/`search_text` 读取。已确认应默认拒绝秘密文件读取，业务确需时再走独立敏感读取确认 + PIN + 脱敏，但尚未实现；敏感密钥最好移出工作区。
 20. **GUI 语义禁令有边界**：只有自定义任务卡保留“发送/提交/付款”时才会拦 GUI 输入类动作；快速任务卡默认不包含这些词。`run_command`/`open_path` 内部是否发送/付款，系统无法语义判断，仍靠人工确认 + PIN。
 21. **技能库不是自动工作流，也没有加密**：`data/task_skills/` 保存脱敏步骤和截图副本；步骤会省略 `type_text`/`clipboard_set`、命令原文和 URL，但截图可能含业务/隐私信息；Agent 不能写技能库，本机用户仍可读，保存前请自行确认截图内容。
+22. **桌面任务预算已主动放宽**：要动鼠标键盘的快速任务默认上限从 30 步/2 元提到 60 步/5 元（否则一连串要求会被熔断）。这是“单次误操作成本上限提高”的权衡，不需要这么高请在 `config/agent.yml` 调低 `task_defaults.desktop_*`。
+23. **确认链不能反过来被自动化绕过**：控件级动作会拒绝终端/脚本宿主/注册表/系统关键进程，也拒绝助手自身窗口与开着确认页（Streamlit）的浏览器；`ui_wait` 这类免确认动作只回答“等到没等到”，不回显窗口标题与坐标。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 

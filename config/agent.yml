@@ -16,12 +16,23 @@ task_defaults:
   max_steps: 30
   max_minutes: 10
   max_cost_yuan: 2.0
+  # 需要动鼠标/键盘或启停应用的任务单独放宽：这类任务一步一截图，
+  # 用上面的通用预算很容易在还剩几个子目标时就被熔断。不能低于通用值。
+  desktop_max_steps: 60
+  desktop_max_minutes: 20
+  desktop_max_cost_yuan: 5.0
 
 # 费用上限估算用的模型单价（元 / 百万 token），请按自己的账单改。
 # 只有供应商返回 usage_metadata 时才计费；不返回时只记录调用次数。
 model_prices:
   input_per_million: 2.0
   output_per_million: 6.0
+
+# 发给模型时保留最近几张桌面截图。历史里的图片每次调用都会被重发，
+# 是“一连串桌面动作”最主要的花费；旧的换成文字占位，模型需要时重新截图即可，
+# 审计日志与界面记录仍然保留每一张原图。默认 1；改成 -1 表示不裁剪。
+vision_history:
+  keep_recent_screenshots: 1
 
 # 工作区内仍然禁止访问的敏感目录（按目录名匹配，不区分大小写）。
 sensitive_dirs:

@@ -50,7 +50,7 @@
     <rect x="864" y="264" width="240" height="44" rx="8" fill="#faf5ff" stroke="#d8b4fe"/>
     <text x="874" y="283" font-size="12" font-weight="600" fill="#0f172a">report_prompt_switch</text>
     <text x="874" y="299" font-size="10.5" fill="#64748b">按 context 切换系统提示词</text>
-    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ 守卫层（自动快速卡 + 可选机器判据 / 只读 / 批次回滚 + 回滚边界 / 预算急停 / PIN 验签） · 任务技能库 · ToolError · ToolRetry · 结果校验 · 会话自愈 · PII · ModelFallback · HITL · ToolCallLimit（100 步兜底）</text>
+    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ 守卫层（自动快速卡 + 子目标拆分 / 可选机器判据 / 只读 / 批次回滚 + 回滚边界 / 预算急停 / 原地打转拦截 / PIN 验签） · 任务技能库 · ToolError · ToolRetry · 结果校验 · 会话自愈 · 截图历史裁剪 · PII · ModelFallback · HITL · ToolCallLimit（100 步兜底）</text>
 
     <path d="M310 178 V240" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M394 278 H420" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
@@ -58,7 +58,7 @@
     <!-- Tool layer -->
     <rect x="40" y="352" width="1120" height="194" rx="14" fill="#ecfdf5" stroke="#a7f3d0"/>
     <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（21 个 @tool；文件类受工作区限制，桌面类受确认/黑名单约束）</text>
-    <text x="64" y="521" font-size="10.5" fill="#047857">桌面控制：computer_use（1 个工具 / 19 动作，复用 OmniPilot 工具层；截图、鼠标键盘、剪贴板、应用启停）</text>
+    <text x="64" y="521" font-size="10.5" fill="#047857">桌面控制：computer_use（1 个工具 / 26 动作；控件级 UIA + 系统 OCR + OmniPilot 键鼠/截图/剪贴板/应用）</text>
     <text x="64" y="537" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认）；删除默认进 .agent_trash；桌面只读动作直接执行，其余需确认</text>
 
     <rect x="64" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>

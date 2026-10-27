@@ -9,7 +9,7 @@ from agent import skill_library
 from agent.react_agent import AgentEvent, ReactAgent
 from agent.guard import approval, journal
 from agent.guard import state as guard_state
-from agent.guard.config import read_only_enabled, set_read_only, task_defaults
+from agent.guard.config import desktop_task_defaults, read_only_enabled, set_read_only, task_defaults
 from agent.guard.lock import TaskBusyError
 from agent.guard.policy import requires_second_subject, reversibility_of
 from agent.guard.scope import ROLLBACK_BOUNDARY_TEXT, rollback_note
@@ -287,16 +287,19 @@ def _on_readonly_toggle() -> None:
 
 def _render_task_card_section() -> None:
     """任务卡：默认自动生成，只有需要时再展开高级表单。"""
-    defaults = task_defaults()
     active = TaskCard.from_dict(st.session_state.get("task_card"))
 
     with st.expander("任务卡（可选，默认自动）", expanded=False):
         st.caption(
             "不用先填表：每次提问会自动生成一张快速任务卡，目标就是你的输入，"
-            "预算使用默认值。工作区、只读开关、人工确认和 PIN 仍然生效。"
+            "预算使用默认值（要动鼠标键盘的桌面任务会自动放宽）。"
+            "“打开微信，登录后给某人发个你好”这类一连串要求会被拆成子目标逐项推进，"
+            "登录/密码/扫码这类步骤会停下来交给人。工作区、只读开关、人工确认和 PIN 仍然生效。"
         )
         if active:
             st.success(active.summary_text())
+            if len(active.subgoals) > 1:
+                st.caption("子目标（只提醒顺序，不扩大权限）：" + " → ".join(active.subgoals))
             st.caption("成功判据：" + "；".join(active.success_criteria))
             st.caption(
                 "机器判据："
@@ -375,6 +378,12 @@ def _render_task_card_section() -> None:
                 default=active.forbidden_actions if active else QUICK_FORBIDDEN,
             )
             col_steps, col_minutes, col_cost = st.columns(3)
+            # 预算默认值跟着“允许的动作”走：勾了桌面/打开就给得更宽。
+            defaults = (
+                desktop_task_defaults()
+                if {"桌面", "打开"} & set(allowed)
+                else task_defaults()
+            )
             steps = col_steps.number_input(
                 "步数上限", min_value=1, max_value=200,
                 value=int(active.max_steps if active else defaults["max_steps"]),

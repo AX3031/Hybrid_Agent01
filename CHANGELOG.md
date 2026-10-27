@@ -8,6 +8,19 @@
 
 ### Added
 
+- `agent/tools/uia_bridge.ps1` + `agent/tools/ui_bridge.py` + `computer_use` 新增 7 个“控件级/OCR”动作（零新增依赖）：`ui_windows`（列窗口）、`ui_tree`（控件树：名字/类型/AutomationId/矩形/可用状态）、`ui_wait`（等窗口或控件出现）、`ui_click`（按控件名点击，优先 InvokePattern）、`ui_set_text`（优先 ValuePattern 赋值，否则点击+全选+键入）、`ocr_text`（Windows 内置 OCR，zh-Hans-CN，返回文字行与中心坐标）、`click_text`（按屏幕文字点击）。用 PowerShell 调 .NET `UIAutomationClient` 与 `Windows.Media.Ocr`，不装 `uiautomation`/`pywinauto`/`comtypes`（Python 3.14 上这些包还不能用）。`computer_use` 从 19 个动作扩到 26 个。
+- 控件级动作的安全边界（`_guard_ui_target`）：**先解析目标窗口并过检查、再执行动作**（否则 Invoke 已发出才发现目标是终端）；拒绝终端/脚本宿主/注册表/磁盘/系统关键进程/助手自身窗口/开着确认页（Streamlit）的浏览器窗口/最小化窗口；密码框不返回值也不写入；`ui_tree`/`ui_windows`/`ocr_text` 的输出在审计日志里脱敏，`ui_set_text` 的文字在参数日志里脱敏；免确认的 `ui_wait` 只回答“等到没等到”，不回显窗口标题与坐标。
+- `guard/policy.py`：把 `ui_windows`/`ui_tree`/`ui_wait`/`ocr_text` 归入只读集（只读模式允许、不需任务卡），`ui_click`/`ui_set_text`/`click_text` 保持 R2（需 PIN、只读模式拒绝、受 GUI 语义禁令约束）。`guard/repeat_guard.py` 把这三个动作也纳入原地打转检测。
+- `prompts/main_prompt.txt`：明确“先控件、再 OCR、最后坐标”的顺序，以及 `ui_wait` 代替 sleep、工具拒绝时不要换坐标绕过、凭据必须交人工。
+- `tests/test_ui_actions.py`：目标窗口守卫（终端/注册表/系统进程/自身/最小化）、密码框隐藏、坐标换算、参数边界、R0/R2 分级，以及“终端窗口必须在 Invoke 之前被拒绝”的顺序用例。
+
+- `agent/tools/middleware.py` + `agent/guard/config.py` + `config/agent.yml`：新增 `trim_screenshot_history` 中间件——发给模型的历史消息只保留最近 `vision_history.keep_recent_screenshots`（默认 1）张桌面截图，更早的图片块换成「[历史截图已省略]」文字；只改写本次请求，checkpoint/审计/界面仍保留每张原图。历史上图片逐轮累加是“一连串桌面动作”被费用熔断的主因（真实一例：12 步 / 17.7 万输入 token / 2.56 元）。`prompts/main_prompt.txt` 增加对应规则（需要旧现场就重新 screenshot）。
+- `agent/guard/repeat_guard.py`：新增“原地打转”确定性检测。按动作 + 坐标（60 px 半径）/按键内容做指纹，滑窗统计同一处的重复次数：第 3 次在工具结果里追加「[重复动作提醒]」并提示改用 `app_open`/`app_open_start_menu`，第 6 次直接拒绝执行且不记步数；截图等观察动作不计入。接线在 `guard_execute`（过审批验签后、扣预算前）。
+- `agent/guard/task_card.py`：新增 `split_subgoals()` 与 `TaskCard.subgoals`——“打开微信，登录后给好友邓三三发个你好”这类一连串要求会按标点/连接词拆成子目标写进提示词，明确要求一次只做一个、卡住（登录/密码/扫码/付款）就交回给人。只提醒顺序，不扩大权限；手工填的卡在 `to_prompt()` 里同样补齐。
+- `agent/guard/config.py` + `config/agent.yml`：新增 `desktop_task_defaults()` 与 `task_defaults.desktop_max_steps/minutes/cost_yuan`（默认 60 步 / 20 分钟 / 5 元）；快速卡判定任务需要动鼠标键盘或启停应用时使用该预算，且不会低于通用默认值。
+- `tests/test_long_task_desktop.py`：截图历史裁剪（含“不改写原消息”）、配置边界、原地打转指纹与阈值、`guard_execute` 接线、子目标拆分、桌面预算用例。
+- `tests/test_computer_use_args.py`：`hotkey keys` / `app_open arguments` / `screenshot region` 被模型写成 JSON 字符串时的归一与拦截用例。
+
 - `agent/tools/computer_use.py`：新增第 19 个桌面动作 `app_open_start_menu(name)`——Windows 上 `app_open` 按友好名启动后拿不到真实成败，若用户反馈“打不开/没打开”，可显式改用此动作：按中英文名与别名（微信↔WeChat、QQ、钉钉↔DingTalk 等）在开始菜单程序目录与 `Get-StartApps` 商店应用里查找快捷方式并启动（未命中不盲打启动命令）；`app_open` 结果附一句中性引导提示模型改用此动作。`prompts/main_prompt.txt` 增加对应规则与“成功后提示保存为技能”引导。
 - `data/task_skills/skills.json`：新增种子技能“从开始菜单打开软件（兜底）”，把上述方法沉淀进技能库供复用。
 - `tests/test_computer_use_startmenu.py`：开始菜单名称变体、高危程序拦截、快捷方式查找（文件名优先、别名兼容）与人话描述用例。
@@ -136,6 +149,8 @@
 
 ### Fixed
 
+- 修复 `computer_use` 的 `hotkey` 真 bug：模型常把 `keys` 发成字符串 `'["alt", "tab"]'`（而不是数组），旧实现按 `+`/空白切分，切出 `'["alt",'`、`'"tab"]'` 这类垃圾键名并交给 OmniPilot——工具返回“Pressed”看起来成功，实际一个快捷键都没按到（审计日志里两次 alt+tab 全部无效，是任务原地打转的直接原因之一）。新增 `_coerce_str_list()`：先识别 JSON 数组并解析，再退回分隔符切分并清掉残留引号/方括号；`app_open` 的 `arguments`、`screenshot` 的 `region` 一并走这条归一路径（`arguments='["--minimized"]'` 以前会被当成一个带方括号的参数传给应用）。
+
 - 修复“修改工作区域会重排整份 `config/agent.yml`”：`save_workspace_roots()` / `set_config_value()` 以前用 `yaml.safe_dump` 整份回写，会丢掉注释并把 `sensitive_dirs` 等无关配置一起重排；现在改为 `agent/guard/config.py` 的 `update_agent_config_block()` 定点替换目标键的块，其余行逐行原样保留。
 - 修复“技能库只能存一个、保存第二个没反应”：`save_skill()` 未传 `skill_id` 时以前总是新建，重复保存堆出一堆同名技能；现在按技能名对齐（同名视为更新），界面保存后改用跨 rerun 可见的闪现提示，不再出现“点了没反应”。
 - 修复“刷新页面后无法修改/删除已保存技能”：`app.py`「任务技能库」新增「编辑此技能」入口，可加载已保存技能改名/改步骤/换截图后回写，删除入口保留在选中技能上。
@@ -174,6 +189,9 @@
 - 工作区域不允许设置为敏感目录（`.ssh`、`.aws` 等）。
 
 ### Security
+
+- 桌面控制新增两块硬限制：① 控件级/OCR 动作在动手前先校验目标窗口，终端、脚本宿主、注册表/磁盘/策略工具与系统关键进程一律拒绝，堵住“往已开着的终端窗口里打字从而绕过 `run_command` 黑名单”这条路；② 助手自身窗口与开着确认页（Streamlit）的浏览器窗口也被拒绝，避免用 UI 自动化自己去点“我确认，执行”；密码框（UIA `IsPassword`）不读不写。
+- 新增残余风险（已记为 TD-41）：`ui_tree`/`ocr_text` 会把界面上的文字（包括**未标记为密码框**的输入框值）送进模型上下文；审计与操作记录已脱敏，但模型侧没有内容过滤。需要时请改用“只读控件元数据”的模式或限制可操作窗口。
 
 - 封堵“用中文/显示名启动高危程序”的绕过：`app_open` 黑名单原来只拦英文可执行文件名（cmd/powershell/regedit 等），`cmd /c start "Command Prompt"`、`命令提示符`、`注册表编辑器`、`磁盘管理` 等显示名能绕过直接拉起终端/注册表/磁盘工具；`_guard_app_open` 与开始菜单启动均新增中英文高危显示名精确拦截，`app_open_start_menu` 命中快捷方式后还会用 PowerShell 解析 `.lnk` 真实目标并重新过黑名单（fail closed，任一命中就拒启动）。
 

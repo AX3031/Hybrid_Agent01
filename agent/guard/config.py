@@ -1,4 +1,4 @@
-"""守卫层配置：只读开关、任务预算默认值、模型价格、状态目录。
+"""守卫层配置：只读开关、任务预算默认值、模型价格、截图历史、状态目录。
 
 注意：`config/agent.yml` 是用户可改的普通配置，不是“Agent 不能读”的
 秘密文件；审批口令（PIN）的哈希不放在这里，见 `agent/guard/approval.py`。
@@ -175,6 +175,49 @@ def model_prices() -> tuple[float, float]:
     except (TypeError, ValueError):
         output_price = 6.0
     return max(0.0, input_price), max(0.0, output_price)
+
+
+def desktop_task_defaults() -> dict:
+    """桌面/应用类任务的预算默认值（比通用任务宽，但仍受 validate 硬范围限制）。
+
+    一连串键鼠动作是一步一截图的长任务：30 步 / 2 元在现实场景中经常
+    不够用，任务会在还剩几个子目标时被熔断。读 `task_defaults.desktop_*`，
+    没配置时给 60 步 / 20 分钟 / 5 元；不需要这么高的预算可以在 agent.yml 里调低。
+    """
+    conf = read_agent_config().get("task_defaults") or {}
+    base = task_defaults()
+
+    def _pick(key: str, fallback: int | float) -> int | float:
+        try:
+            return type(fallback)(conf.get(key, fallback))
+        except (TypeError, ValueError):
+            return fallback
+
+    max_steps = int(_pick("desktop_max_steps", 60))
+    max_minutes = int(_pick("desktop_max_minutes", 20))
+    max_cost = float(_pick("desktop_max_cost_yuan", 5.0))
+    return {
+        "max_steps": max(base["max_steps"], max(1, min(max_steps, 200))),
+        "max_minutes": max(base["max_minutes"], max(1, min(max_minutes, 120))),
+        "max_cost_yuan": max(base["max_cost_yuan"], max(0.1, min(max_cost, 100.0))),
+    }
+
+
+def keep_recent_screenshots() -> int:
+    """发给模型时保留最近几张桌面截图；返回 -1 表示不裁剪。
+
+    截图是桌面任务最主要的花费：历史里的图片每次调用都会重发，十几步就能
+    把费用顶到上限。只把最近 N 张图发给模型（旧的换成文字占位，需要时重新
+    截图即可），状态和审计仍保留原图。默认 1 张；配置为 0 按 1 张处理。
+    """
+    conf = read_agent_config().get("vision_history") or {}
+    try:
+        keep = int(conf.get("keep_recent_screenshots", 1))
+    except (TypeError, ValueError):
+        keep = 1
+    if keep <= -1:
+        return -1
+    return max(1, keep)
 
 
 def state_dir() -> Path:

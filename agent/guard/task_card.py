@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from agent.guard.config import task_defaults
+from agent.guard.config import desktop_task_defaults, task_defaults
 from agent.guard import criteria
 from agent.guard.scope import ROLLBACK_BOUNDARY_TEXT
 
@@ -62,6 +62,37 @@ def _as_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+# 把“打开微信，登录后给邓三三发个你好”拆成可逐项推进的子目标。
+# 只用于提醒模型“这是一连串要求”，不改变任务卡的安全约束。
+_SUBGOAL_SEPARATORS = (
+    "然后", "接着", "之后", "接下来", "再帮我", "最后",
+    "，", "。", "；", ";", ",", "、", "\n",
+)
+
+_MAX_SUBGOALS = 8
+
+
+def split_subgoals(text: str) -> list[str]:
+    """从一段目标描述里拆出子目标；拆不出两项以上就返回空列表。
+
+    只做保守拆分：按标点与连接词切，丢掉太短的碎片。拆分失败不影响任务，
+    模型仍按原来的整句目标执行。
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+    pieces = [raw]
+    for separator in _SUBGOAL_SEPARATORS:
+        if not pieces:
+            break
+        pieces = [piece for chunk in pieces for piece in chunk.split(separator)]
+    items = [piece.strip(" “”\"'(（) ）").strip() for piece in pieces if piece and piece.strip()]
+    items = [item for item in items if len(item) >= 2]
+    if len(items) < 2:
+        return []
+    return items[:_MAX_SUBGOALS]
+
+
 @dataclass
 class TaskCard:
     """一张任务卡；字段与《小企业版》附录 B 对齐。"""
@@ -83,6 +114,8 @@ class TaskCard:
     on_uncertain: str = "标记 UNKNOWN 并停下来问人"
     # 可复用技能库给出的步骤参考；只作为提示，不替代任务卡约束和现场核对。
     reference_steps: list[str] = field(default_factory=list)
+    # 一连串要求拆出的子目标（仅用于提醒执行顺序，不是新的权限）。
+    subgoals: list[str] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # 序列化
@@ -106,6 +139,7 @@ class TaskCard:
             "rollback_note": self.rollback_note,
             "on_uncertain": self.on_uncertain,
             "reference_steps": list(self.reference_steps),
+            "subgoals": list(self.subgoals),
         }
 
     @classmethod
@@ -130,6 +164,7 @@ class TaskCard:
             rollback_note=str(data.get("rollback_note", "")).strip(),
             on_uncertain=str(data.get("on_uncertain") or "标记 UNKNOWN 并停下来问人").strip(),
             reference_steps=_as_list(data.get("reference_steps")),
+            subgoals=_as_list(data.get("subgoals")),
         )
 
     @classmethod
@@ -148,16 +183,21 @@ class TaskCard:
         text = str(prompt or "").strip()
         first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
         name = first_line[:40] or "快速任务"
-        defaults = task_defaults()
+        goal = text or "按用户输入完成一次电脑操作"
+        allowed = list(ALL_ACTIONS if allowed_actions is None else allowed_actions)
+        # 需要动鼠标键盘或启停应用的任务是一步一截图的长任务，
+        # 用通用预算（30 步 / 2 元）很容易在还剩几个子目标时被熔断。
+        desktop_like = bool({ACTION_DESKTOP, ACTION_OPEN} & set(allowed))
+        defaults = desktop_task_defaults() if desktop_like else task_defaults()
         return cls(
             name=name,
             user="",
-            goal=text or "按用户输入完成一次电脑操作",
+            goal=goal,
             success_criteria=list(DEFAULT_SUCCESS_CRITERIA),
             machine_checks=[],
             input_scope=[],
             output_location="",
-            allowed_actions=list(ALL_ACTIONS if allowed_actions is None else allowed_actions),
+            allowed_actions=allowed,
             forbidden_actions=list(QUICK_FORBIDDEN),
             max_steps=int(defaults["max_steps"]),
             max_minutes=int(defaults["max_minutes"]),
@@ -166,6 +206,7 @@ class TaskCard:
             rollback_note="",
             on_uncertain="标记 UNKNOWN 并停下来问人",
             reference_steps=list(reference_steps or []),
+            subgoals=split_subgoals(goal),
         )
 
     # ------------------------------------------------------------------
@@ -245,10 +286,22 @@ class TaskCard:
         forbidden = "、".join(self.forbidden_actions) or "无"
         scope = "、".join(self.input_scope) or "工作区内的只读范围"
         output = self.output_location or "未指定（写操作仍受工作区限制）"
+        # 手工填的任务卡没经快速卡时不会预先拆分，这里补上，避免两种入口行为不一致。
+        items = list(self.subgoals) or split_subgoals(self.goal)
         reference = (
             "\n可复用技能参考（只作步骤提示，执行前仍要按现场核对）：\n"
             + "\n".join(f"  - {item}" for item in self.reference_steps)
+            + "\n"
             if self.reference_steps
+            else ""
+        )
+        subgoals = (
+            "\n本次是一连串要求，拆成子目标逐项推进（只提醒顺序，不扩大权限）：\n"
+            + "\n".join(f"  {index}. {item}" for index, item in enumerate(items, 1))
+            + "\n一次只做一个子目标：做完一个用事实确认后再进入下一个；"
+              "卡住（需要你登录、输入密码、扫码、付款这类）就停下来交给人，"
+              "不要用同一个动作反复硬试。\n"
+            if len(items) > 1
             else ""
         )
         return (
@@ -269,7 +322,8 @@ class TaskCard:
             f"回滚方式：{self.rollback_note or '批次号会在任务开始时生成，可在界面「批次与回滚」里一键撤销整批'}\n"
             f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}\n"
             f"不确定时：{self.on_uncertain}\n"
-            f"{reference}\n"
+            f"{reference}"
+            f"{subgoals}"
             "语义禁令说明：如果禁止动作里包含「发送/提交/付款」，系统会保守拒绝"
             "所有 GUI 输入类动作（点击/键盘/剪贴板写入/应用启停），因为无法判断一次点击"
             "是否会触发提交；不要尝试用命令或打开程序绕过。\n"

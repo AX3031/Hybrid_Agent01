@@ -31,7 +31,10 @@
 | 12. 第二主体 PIN | 命令、永久删除、桌面输入等 R2/R3 动作需要口令，执行侧验签 | 确认卡片上的口令输入框 |
 | 13. 项目自身写保护 | Agent 不能写源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据/技能库 | 工具返回“项目源码/配置...不得写入” |
 | 14. 机器判据 | 可选；填了才由代码核对文件数/大小/哈希/文本等 | 回答末尾「机器判据」 |
-| 15. GUI 语义禁令 | 自定义任务卡禁止发送/提交/付款时，所有 GUI 输入类动作被保守拒绝；快速卡默认不含这些词 | 工具返回“无法判断...已拒绝” |
+| 15. 原地打转拦截 | 同一区域反复做同一个鼠标/键盘动作：第 3 次提醒换策略，第 6 次拒绝执行 | 工具结果里的「[重复动作提醒]」或“判定为原地打转”的拒绝 |
+| 16. 截图历史裁剪 | 只把最近几张截图发给模型，旧的换成文字占位（审计与界面仍存完整原图） | 日志 `[vision]本次只保留最近 N 张截图` |
+| 17. GUI 语义禁令 | 自定义任务卡禁止发送/提交/付款时，所有 GUI 输入类动作被保守拒绝；快速卡默认不含这些词 | 工具返回“无法判断...已拒绝” |
+| 18. 控件级动作目标检查 | `ui_click`/`ui_set_text`/`click_text` 先确认目标窗口再动手；终端/注册表/系统进程/助手自身/确认页窗口拒绝，密码框不读不写 | 工具返回“目标窗口属于终端/已拒绝自动操作” |
 
 事后你还能查三本账：聊天页面的「操作记录」、`logs/audit_YYYYMMDD.jsonl` 审计日志，以及侧边栏「批次与回滚」的任务批次回放。
 
@@ -180,7 +183,7 @@ workspace_roots:
 
 自定义任务卡里如果保留「发送/提交/付款」，所有 GUI 输入类动作会被保守拒绝（因为系统无法判断一次点击是否等于提交）；`run_command`/`open_path` 不在这条语义拦截内，仍需人工确认 + PIN。快速卡默认不包含这三个词。
 
-查看类也会被记录，只是不需要你点头。桌面控制是一个工具（`computer_use`）里的 19 个动作，确认粒度按动作而不是按工具。
+查看类也会被记录，只是不需要你点头。桌面控制是一个工具（`computer_use`）里的 26 个动作（其中 7 个是控件级/OCR），确认粒度按动作而不是按工具。
 
 ---
 
@@ -436,9 +439,9 @@ workspace_roots:
 **限制与风险：**
 
 - 截图可能包含密码、聊天记录、邮件等隐私内容，并会发送给模型分析；
-- 没有控件树/OCR，坐标要靠截图观察或模板匹配；
+- 坐标类动作要靠截图观察或模板匹配；能拿到控件时请优先用 5.13 的 `ui_tree`/`ui_click`；
 - 多显示器/DPI 缩放可能让坐标偏移；点击不准时先 `screen_size` 或 `locate_image`；
-- 截图以 base64 写入会话记忆，连续截图会让会话体积变大。
+- 截图以 base64 写入会话记忆；发给模型时只保留最近几张（`vision_history.keep_recent_screenshots`），需要旧现场就重新截。
 
 ---
 
@@ -477,7 +480,8 @@ workspace_roots:
 - `type_text` 输入到**当前焦点窗口**；焦点不对时文字可能落到别处；
 - 中文/Unicode 通过剪贴板粘贴实现，会覆盖剪贴板；
 - 不要主动输入密码、验证码、密钥；用户明确要求时先提醒风险；
-- `press_key` 支持 enter/tab/escape/f5/up/down 等；`hotkey` 用 `['ctrl','s']` 或 `'ctrl+s'`。
+- `press_key` 支持 enter/tab/escape/f5/up/down 等；`hotkey` 用 `['ctrl','s']` 或 `'ctrl+s'`；
+- 模型把 `keys` 写成一整串 JSON（如 `'["alt", "tab"]'`）时也会被正确解析；以前会拆成垃圾键名，“执行成功”但实际什么快捷键都没按到。
 
 ---
 
@@ -515,6 +519,35 @@ workspace_roots:
 - `app_close` 拒绝关闭系统关键进程（explorer、svchost、lsass、winlogon 等）；
 - 关闭用户程序前先提醒保存，未保存的数据可能丢失；
 - 通过路径启动程序时，路径必须在工作区域内。
+
+### 5.13 控件级操作（UIA 控件树 + 系统 OCR）
+
+**你可以这样说：**
+
+- “看看微信登录界面上有什么按钮”
+- “点叫『发送』的那个按钮”
+- “把这个窗口里的文字读出来”
+
+**动作：** `ui_windows` / `ui_tree` / `ui_wait` / `ocr_text` 是读（仍需确认，`ui_wait` 直接执行）；`ui_click` / `ui_set_text` / `click_text` 是 R2，需要确认 + PIN。
+
+**为什么需要它：** 只看截图时，模型只能“猜像素”——它不知道那个位置是输入框还是按钮、能不能点、是不是灰了，所以只能试；一试就要重新截图，费用很快就顶到上限。UIA 直接给出控件名字与精确矩形，OCR 给出“文字在哪”，不用猜。
+
+**执行链路（零新依赖）：** `computer_use` → `agent/tools/ui_bridge.py` → `agent/tools/uia_bridge.ps1` → Windows 自带的 `UIAutomationClient` / `Windows.Media.Ocr`。不用 `uiautomation`/`pywinauto` 这类包，因为 Python 3.14 上还没有可用轮子；每次调用会起一个 PowerShell 进程（约 0.3–0.6 秒）。
+
+**安全边界：**
+
+- **先检查、后动手**：动作前会先解析目标窗口并过 `_guard_ui_target`，而不是先 Invoke 再发现问题；
+- 拒绝终端/脚本宿主（cmd、PowerShell、WT、conhost、WSL…）、注册表/磁盘/策略工具、系统关键进程——否则等于往已开着的 cmd 窗口里打字，绕过 `run_command` 黑名单；
+- 拒绝**助手自己的窗口**与开着确认页（Streamlit）的窗口：确认与 PIN 必须由人在页面上点，模型不能自己批自己；
+- 密码框（UIA `IsPassword`）不返回值、不写入；需要登录/验证码/付款时停下来请你手动完成；
+- 目标窗口不存在/已最小化（尺寸为 0）时直接报错，不会盲点屏幕；
+- `ui_tree`/`ui_windows`/`ocr_text` 的结果在审计日志里只记长度与占位，`ui_set_text` 的文字在参数日志里脱敏；
+- 控件树有上限（depth ≤ 6、≤300 个控件、输出 ≤6000 字符），超出会提示用 `name_filter` 缩小范围；
+- **注意**：没有标记为密码框的普通输入框，其内容会随 `ui_tree` 返回（例如别人帮你登账号时已填的手机号）。敏感内容仍建议人工输入。
+
+**拿不到控件时怎么办：** 部分软件是自绘界面（实测 WPS 只能看到 2 个空容器），此时用 `ocr_text` 拿文字与中心坐标，再用 `click_text`（按文字点击）或 `click`（按坐标）。
+
+**不能用的场景：** 非 Windows 环境（桥会返回“不可用”）；提权窗口被 UIPI 拦住；文件选择对话框等由 explorer 拥有的窗口也在拒绝名单里（这类请人工操作）。
 
 ---
 
@@ -660,7 +693,8 @@ app.py main.py test1.py pyproject.toml uv.lock .env .gitignore 等根目录源�
 
 ### 8.5 工具次数与任务预算
 
-- 每个任务默认最多 **30 次工具调用 / 10 分钟 / 2 元**（任务卡可调）；
+- 普通任务默认最多 **30 次工具调用 / 10 分钟 / 2 元**；需要动鼠标键盘或启停应用的桌面任务默认 **60 次 / 20 分钟 / 5 元**（任务卡可调，`config/agent.yml` 的 `task_defaults` 与 `task_defaults.desktop_*`）；
+- 一连串要求（“打开微信，登录后给某人发个你好”）会被拆成子目标逐项推进；登录、密码、验证码、扫码、付款这类步骤会停下来请你手动完成；
 - 等待人工确认的时间不计入时长；
 - 另有 `ToolCallLimitMiddleware` 的 **100 步/单次运行硬上限** 作为兜底；
 - 超限后 `guard_model` 会直接返回“任务已停止”，不再调用模型；
@@ -736,7 +770,9 @@ text_not_contains|D:\输出\结果.txt|失败
 
 | 想做什么 | 去哪里 | 说明 |
 | --- | --- | --- |
-| 给任务定目标/判据/范围/预算 | 侧边栏「任务卡（可选，默认自动）」 | 默认快速卡；高级模式可改范围/预算/机器判据；越界会被拒绝 |
+| 给任务定目标/判据/范围/预算 | 侧边栏「任务卡（可选，默认自动）」 | 默认快速卡；一连串要求会自动拆成子目标逐项推进；高级模式可改范围/预算/机器判据；越界会被拒绝 |
+| 让桌面长任务跑得下去（不被费用熔断） | `config/agent.yml` 的 `task_defaults.desktop_*`（预算）与 `vision_history.keep_recent_screenshots`（截图历史） | 两个值都可以不改代码调整；改后立即生效（每次使用时重读） |
+| 阻止“在同一个地方反复点” | `agent/guard/repeat_guard.py` 的 `_SOFT_REPEATS` / `_HARD_REPEATS` / `_RADIUS` | 提醒不阻断执行；达到硬阈值才拒绝这一次调用 |
 | 保存/复用任务步骤与截图 | 侧边栏「任务技能库」 | 保存人话步骤、关键截图和最终成果截图；步骤会省略命令/URL/输入文字原文；复用只作提示，不自动执行；截图可能含隐私 |
 | 临时禁止一切写入 | 侧边栏「安全开关」的「只读模式」 | 也可用 `AGENT_READ_ONLY=1` 临时演练 |
 | 撤销一次任务的全部改动 | 侧边栏「批次与回滚」 | 勾选确认后点「撤销整批」；永久删除会报不可逆 |
@@ -752,7 +788,8 @@ text_not_contains|D:\输出\结果.txt|失败
 
 | 做不到 | 说明 |
 | --- | --- |
-| 控件树/OCR/窗口选择器 | 目前靠截图 + 坐标/模板匹配 |
+| 自绘界面的控件信息 | UIA 已接入（控件树 + 系统 OCR），但自绘界面（WPS、部分网页/游戏）拿不到控件，只能靠 OCR 文字定位 |
+| 提权窗口与非 Windows | 提权窗口的跨进程 UIA 被 UIPI 拦住；UIA/OCR 桥只在 Windows 生效 |
 | 多显示器/DPI 自动校准 | 坐标可能偏移，需要手动核对 |
 | 启动终端/脚本宿主/注册表/磁盘工具 | 为防止绕过 `run_command`，`app_open` 直接拒绝 |
 | 关闭系统关键进程 | `app_close` 直接拒绝 |
@@ -840,7 +877,7 @@ text_not_contains|D:\输出\结果.txt|失败
 | 12 | `run_command` | `command`、`cwd`、`timeout` | `None`、`60` | **是** | 是（cwd + 命令内路径） |
 | 13 | `open_path` | `path` | — | **是** | 是（URL 除外） |
 
-桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)，一个工具 19 个动作。
+桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)，一个工具 26 个动作；其中 7 个“控件级”动作走 [agent/tools/uia_bridge.ps1](../agent/tools/uia_bridge.ps1)（Windows 自带 UIA + OCR，不装任何新依赖）。
 
 | 动作 | 主要参数 | 确认 |
 | --- | --- | --- |
@@ -848,6 +885,13 @@ text_not_contains|D:\输出\结果.txt|失败
 | `screen_size` | 无 | 否 |
 | `locate_image` | `image_path`、`confidence` | 否 |
 | `wait` | `seconds` | 否 |
+| `ui_windows` | `name_filter`、`limit` | **是** |
+| `ui_tree` | `window`、`pid`、`depth`、`limit`、`name_filter` | **是** |
+| `ui_wait` | `window`、`pid`、`name`、`automation_id`、`timeout` | 否 |
+| `ui_click` | `window`、`pid`、`name`、`automation_id`、`control_type` | **是**（R2，需 PIN） |
+| `ui_set_text` | `window`、`pid`、`name`、`automation_id`、`text` | **是**（R2，需 PIN） |
+| `ocr_text` | `region`、`window` | **是** |
+| `click_text` | `text`、`index`、`window` | **是**（R2，需 PIN） |
 | `click` | `x`、`y`、`button`、`clicks` | **是** |
 | `double_click` / `right_click` | `x`、`y` | **是** |
 | `move_mouse` | `x`、`y` | **是** |
@@ -861,6 +905,24 @@ text_not_contains|D:\输出\结果.txt|失败
 | `app_open_start_menu` | `name` | **是** |
 | `app_close` | `name`、`force` | **是** |
 | `app_list` | `name_filter`、`limit` | **是** |
+
+### 11.1.1 控件级动作（比猜坐标可靠）
+
+Windows 自带的 UI 自动化能直接拿到“控件名字 + 类型 + 位置 + 是否可用”，不需要模型从截图里估坐标；自带 OCR 能拿到“屏幕上的文字 + 中心点”。两者都**不需要安装任何 Python 包**，由 `uia_bridge.ps1` 调系统接口。
+
+推荐顺序：**ui_windows 找窗口 → ui_tree 看控件 → ui_click / ui_set_text 操作 → ui_tree 或截图确认**。`ui_tree` 为空说明是自绘界面（WPS、部分网页/游戏），此时改用 `ocr_text` / `click_text`；坐标点击是最后选择。
+
+| 能力 | 能做什么 | 安全边界 |
+| --- | --- | --- |
+| `ui_windows` | 列出可见窗口（标题/进程/类名/位置/是否前台） | 敏感读，需确认 |
+| `ui_tree` | 导出控件树（名字、类型、AutomationId、矩形、可用/离屏、输入框值） | 密码框内容固定返回隐藏占位；输出截断到 6000 字符 |
+| `ui_click` | 按控件名点击：优先 InvokePattern（不移动鼠标），否则点控件中心 | 拒绝终端/脚本宿主/注册表等系统工具窗口；**先检查再动手** |
+| `ui_set_text` | 按控件名写文字：优先 ValuePattern.SetValue，否则点击+全选+键入 | 拒绝向密码框写入；同样拒绝系统工具窗口 |
+| `ocr_text` | 截图后用系统 OCR 读出文字行与坐标（中英文） | 会短暂落盘一张截图；识别结果在审计日志里脱敏 |
+| `click_text` | 按屏幕文字点击（适合自绘界面） | 文字匹配不准可能点到附近；仍需确认 + PIN |
+| `ui_wait` | 轮询窗口/控件是否出现（取代固定 sleep） | 只返回找到/没找到与耗时，不返回屏幕内容 |
+
+已知限制：每次调用要起一个 PowerShell 进程（约 0.3–0.6 秒）；控件树深度超过 6 层或控件数过多时会被截断；自绘界面需要靠 OCR。
 
 ### 11.2 工作区域配置
 
@@ -898,7 +960,12 @@ sensitive_dirs:
 | `_MAX_RESULT_CHARS` | `os_tools.py` | 8000 |
 | `_BACKUP_MAX_BYTES` | `safety.py` | 10 MB |
 | 危险命令黑名单 | `safety.py` | 28 条规则 |
-| `TOOL_CALL_LIMIT` | `react_agent.py` | 100 次/轮兜底（每任务默认预算 30 步，见 `agent/guard/state.py`） |
+| `TOOL_CALL_LIMIT` | `react_agent.py` | 100 次/轮兜底（普通任务默认预算 30 步、桌面任务 60 步，见 `agent/guard/state.py`、`agent/guard/config.py`） |
+| 重复动作拦截阈值 | `repeat_guard.py` | 同区域 60 px 内；第 3 次提醒、第 6 次拒绝 |
+| 发给模型的截图张数 | `config/agent.yml` 的 `vision_history.keep_recent_screenshots` | 默认 1；`-1` 不裁剪 |
+| 控件树上限 | `computer_use.py` | `_MAX_UI_NODES=120`、`_MAX_UI_TREE_CHARS=6000`、depth≤6 |
+| OCR 输出上限 | `computer_use.py` | `_MAX_OCR_LINES=60` 行 |
+| UI 自动化超时 | `ui_bridge.py` | 单次 12 秒（找不到窗口/控件时由 `ui_wait` 自己轮询） |
 | `_MAX_TEXT_CHARS` | `computer_use.py` | 10000 字符/次 |
 | `_MAX_CLIPBOARD_CHARS` | `computer_use.py` | 20000 字符/次 |
 | `_MAX_WAIT_SECONDS` | `computer_use.py` | 10 秒 |

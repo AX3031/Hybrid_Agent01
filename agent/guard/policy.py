@@ -25,7 +25,9 @@ from agent.guard.task_card import (
     TaskCard,
 )
 
-# 只读桌面动作：不改变本机状态，只读模式下允许
+# 只读桌面动作：不改变本机状态，只读模式下允许。
+# ui_windows / ui_tree / ocr_text 是“敏感读”（会看到窗口标题和界面文字），
+# 归类上等同于截图：只读模式允许，但仍要人工确认。
 DESKTOP_READ_ONLY_ACTIONS = {
     "screen_size",
     "locate_image",
@@ -33,6 +35,10 @@ DESKTOP_READ_ONLY_ACTIONS = {
     "screenshot",
     "clipboard_get",
     "app_list",
+    "ui_windows",
+    "ui_tree",
+    "ui_wait",
+    "ocr_text",
 }
 
 # 任务卡里的“发送/提交/付款”是语义禁令，不是工具类别；GUI 无法从坐标/文字

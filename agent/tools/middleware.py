@@ -4,6 +4,7 @@ import requests
 from utils.prompt_loader import load_system_prompts,load_report_prompts
 from langchain.agents import AgentState
 from langchain.agents.middleware import (
+    wrap_model_call,
     wrap_tool_call,
     before_model,
     dynamic_prompt,
@@ -24,6 +25,7 @@ from agent.tools.safety import (
 from agent.tools.verification import enrich_tool_message
 from agent.guard import policy
 from agent.guard import state as guard_state
+from agent.guard.config import keep_recent_screenshots
 from langgraph.runtime import Runtime
 
 
@@ -252,3 +254,74 @@ tool_retry_middleware = ToolRetryMiddleware(
     backoff_factor=2.0,
     max_delay=2.0,
 )
+
+
+# ---------------------------------------------------------------------------
+# 截图历史裁剪：让“一连串桌面动作”跑得起
+#
+# 只改写本次发给模型的请求，不改 checkpoint：审计与界面仍能看到每一张原图，
+# 但模型只拿最近 N 张截图（旧的换成文字占位，需要旧现场时让它重新 screenshot）。
+# ---------------------------------------------------------------------------
+
+_IMAGE_BLOCK_TYPES = {"image", "image_url"}
+
+_SCREENSHOT_DROPPED_NOTE = (
+    "[历史截图已省略：系统只把最近几张图发给模型。"
+    "如需确认现场，请重新调用 computer_use(action=screenshot)，不要凭旧图猜坐标。]"
+)
+
+
+def _is_image_block(block) -> bool:
+    if isinstance(block, dict):
+        return str(block.get("type", "")) in _IMAGE_BLOCK_TYPES
+    return str(getattr(block, "type", "")) in _IMAGE_BLOCK_TYPES
+
+
+def trim_messages_screenshots(messages: list, keep: int) -> tuple[list, int]:
+    """只保留最近 `keep` 个图片块，更早的换成文字占位；返回（新消息列表, 被裁剪数）。
+
+    同一消息里的文字部分（结果摘要、截图路径）原样保留，只替掉图片块，
+    所以模型仍能看到“那一步做了什么”，只是拿不到旧像素。
+    """
+    if keep < 0:
+        return messages, 0
+    positions: list[tuple[int, int]] = []  # (消息下标, 块下标)
+    for index, message in enumerate(messages):
+        content = getattr(message, "content", None)
+        if isinstance(content, list):
+            positions.extend(
+                (index, block_index)
+                for block_index, block in enumerate(content)
+                if _is_image_block(block)
+            )
+    if len(positions) <= keep:
+        return messages, 0
+    drop = positions[: len(positions) - keep]
+    by_message: dict[int, set[int]] = {}
+    for message_index, block_index in drop:
+        by_message.setdefault(message_index, set()).add(block_index)
+
+    rebuilt: list = []
+    for index, message in enumerate(messages):
+        dropped_blocks = by_message.get(index)
+        if not dropped_blocks:
+            rebuilt.append(message)
+            continue
+        content = list(message.content)
+        for block_index in dropped_blocks:
+            content[block_index] = {"type": "text", "text": _SCREENSHOT_DROPPED_NOTE}
+        rebuilt.append(message.model_copy(update={"content": content}))
+    return rebuilt, len(drop)
+
+
+@wrap_model_call
+def trim_screenshot_history(request: ModelRequest, handler):
+    """在真正调用模型前裁掉历史里的旧截图，避免每张图反复重发、重复计费。"""
+    keep = keep_recent_screenshots()
+    if keep < 0:
+        return handler(request)
+    messages, dropped = trim_messages_screenshots(request.messages, keep)
+    if not dropped:
+        return handler(request)
+    logger.info(f"[vision]本次只保留最近 {keep} 张截图，已省略历史图片 {dropped} 张")
+    return handler(request.override(messages=messages))
