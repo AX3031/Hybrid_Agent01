@@ -17,6 +17,7 @@ from agent.tools.safety import (
     workspace_text,
 )
 from memorys.memory_factory import DEFAULT_MEMORY_MODE, MEMORY_MODE_LABELS
+from utils.logger_handler import logger
 
 DEFAULT_SESSION_ID = "user_001"
 GREETING = {"role": "assistant", "content": "你好，我可以查看这台电脑的信息，也能帮你整理文件、执行命令。你想做什么？"}
@@ -325,7 +326,10 @@ if prompt:
                 )
             )
         except Exception as exc:
+            # 生产环境只看一句 st.error 无法定位问题：把堆栈写进日志，界面保留简短提示
+            logger.exception("[app]生成回答失败")
             st.error(f"生成回答失败：{exc}")
+            st.caption("这一轮已中断；下次提问前会自动修复本轮留下的未完成工具调用，可以直接继续。")
             content, operations = "", []
 
     # 有操作等待确认时，本轮先不写历史，避免和确认后的结果重复

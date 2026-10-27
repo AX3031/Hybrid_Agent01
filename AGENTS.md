@@ -10,9 +10,10 @@
 4. 需要安全评估、威胁模型、技术债与改进优先级时，读 `docs/SECURITY_REPORT.md`。
 5. 需要 Agent 安全设计的通用经验、反模式和落地路线时，读 `docs/AGENT_SECURITY_PLAYBOOK.md`。
 6. 需要了解 OmniPilot 桌面控制的接入背景、用法、限制与风险时，读 `docs/OMNIPILOT_INTEGRATION_REPORT.md`（小白版报告）。
-7. `docs/ARCHITECTURE.md` 的对应章节：按 `PROJECT_OVERVIEW.md` 第 8 节索引按需读，不要默认整份加载。
-8. 源码：需要精确行为时再读；代码是最终事实源。
-9. `CHANGELOG.md`：只在需要知道“最近改了什么 / 为什么改”时读；它是 Keep a Changelog 格式的人工摘要，不是 git log。
+7. 要改工具失败/重试/结果校验/会话自愈，或要跑回归验证时，读 `docs/agent-resilience/00-进度备忘录.md` + `01-入门讲解-失败重试与结果验证.md` + `02-验证与交付复盘.md`；回归命令是 `python scripts/verify_agent_resilience.py`。
+8. `docs/ARCHITECTURE.md` 的对应章节：按 `PROJECT_OVERVIEW.md` 第 8 节索引按需读，不要默认整份加载。
+9. 源码：需要精确行为时再读；代码是最终事实源。
+10. `CHANGELOG.md`：只在需要知道“最近改了什么 / 为什么改”时读；它是 Keep a Changelog 格式的人工摘要，不是 git log。
 
 ## 不要做的事
 
@@ -27,6 +28,8 @@
 - 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`docs/OS_TOOLS.md`、`architecture.svg` 工具层。
 - 新增/删除中间件 → `ARCHITECTURE.md` 5.2/8/11、`architecture.svg` 编排层。
 - 新增/删除文档 → `README.md` 导读/文档地图、`PROJECT_OVERVIEW.md` 第 8 节、本文件阅读顺序。
+- 新增/修改测试用例或验证脚本 → `tests/`、`scripts/verify_agent_resilience.py`、`docs/agent-resilience/02-验证与交付复盘.md`（用例数与结论要同步）、`ARCHITECTURE.md` 13.10、`README.md` 能力表。
+- 改工具失败/重试/结果校验/会话自愈 → `agent/resilience.py`、`agent/tools/verification.py`、`agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` / `_should_retry_tool_error`、`ARCHITECTURE.md` 6.5/11.3/12、`docs/agent-resilience/01`，并补对应用例。
 - 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`docs/OS_TOOLS.md`、`README.md` 能力表、`architecture.svg` 工具层。
 - 改安全策略/工作区域 → `ARCHITECTURE.md` 7.2/7.4、`docs/OS_TOOLS.md` 2/8/11.2/11.3、`README.md` 配置速查；界面入口在 `app.py` 的「工作区域」弹层。
 - 改配置 → `ARCHITECTURE.md` 9、`README.md` 配置速查。

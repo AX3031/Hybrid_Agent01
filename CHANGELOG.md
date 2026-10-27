@@ -8,6 +8,14 @@
 
 ### Added
 
+- `agent/tools/middleware.py`：新增 `tool_error_middleware`（`ToolErrorMiddleware`）—— 工具抛异常时转成 `ToolMessage(status="error")`，内容以「工具 xxx 执行失败」开头，ReAct 循环不再被整轮打断；异常类型与一句话原因写日志，堆栈不发给模型。
+- `agent/tools/middleware.py`：新增 `tool_retry_middleware`（`ToolRetryMiddleware`）—— 只对 `RETRYABLE_TOOLS`（幂等/只读工具）重试 2 次，且只重试超时/断连/429/5xx；`on_failure="error"` 把最终失败交给错误中间件。写文件、删除、移动复制、命令、键鼠操作不自动重试。
+- `agent/tools/verification.py`：新增结果校验 —— 写文件、建目录、移动、复制、删除在写审计前核对后置条件（含 Windows 换行归一化）；校验不通过时把 `ToolMessage.status` 改为 `error` 并附「[结果校验未通过]」。
+- `agent/resilience.py`：新增会话自愈 —— 识别“有调用没结果”的 tool_call，以 `as_node="tools"` 补 `[未执行]` 占位 error ToolMessage，修复被污染的 thread。
+- `tests/`：新增 20 条 unittest 用例（假模型 `ScriptedToolModel`，不联网）：异常转消息、重试分类、副作用工具不重试、悬空调用修复、五类文件操作校验、联网搜索失败语义。
+- `scripts/verify_agent_resilience.py`：跑全部用例并产出 `docs/agent-resilience/evidence/verify-*.json`（含环境、Git commit、逐条耗时）。
+- `docs/agent-resilience/`：新增进度备忘（00）、入门讲解（01）、验证与交付复盘（02）。
+- `docs/06-长期改造经验与方法论.md`：补入长任务改造方法论（任务契约、评估尺、阶段门、复盘与反幻觉）。
 - `agent/tools/computer_use.py`：新增单入口 `computer_use` 工具（18 个动作），复用 OmniPilot 的 screen/gui/clipboard/apps 本地工具层，不嵌套其 Agent 循环；截图以 LangChain content block 回传，`qwen3.5-flash` 可直接看图；`app_open` 拒绝终端/脚本宿主/注册表/磁盘工具与 cmd 元字符（防止 `cmd /c start` 命令注入），`app_close` 拒绝系统关键进程。
 - `agent/react_agent.py`：注册 `computer_use` 到 `CONFIRM_TOOLS`，用 `_HITL_CONFIG` 的 `when` 谓词按 `action` 细分：`screen_size`/`locate_image`/`wait` 直接执行，其余 15 个动作需确认。
 - `agent/tools/safety.py`：新增 `summarize_content_for_log`、`sanitize_tool_args`、`sanitize_tool_result`，以及 `computer_use` 的确认卡片文案（标题/风险/目标）。
@@ -43,6 +51,13 @@
 
 ### Changed
 
+- 中间件从 8 个增至 10 个；`create_agent` 的 `middleware` 顺序为 `model_fallback → pii_email → pii_phone → tool_error → tool_retry → monitor_tool → log_before_model → report_prompt_switch → hitl → tool_limit`（列表越靠前越外层）。
+- `ReactAgent.execute_stream` 在提交新消息前先调用 `resilience.repair_thread_state`，自动修复上次中断留下的悬空工具调用。
+- `monitor_tool` 在写审计前调用 `verification.enrich_tool_message`，审计与操作记录的状态开始反映“结果校验”的结论。
+- `web_search_baidu` 失败语义：缺失 `API_KEY_BAIDU` 抛可读 `RuntimeError`；HTTP/网络错误改为 `raise`（由重试/错误中间件处理）；搜索成功但无结果返回可读说明，不再返回空字符串；超时改为 `(5, 30)` 连接/读取分离。
+- `prompts/main_prompt.txt`：重试规则从“不要重试”改为“同一次调用最多重试 1 次且必须换参数/路径/等价工具”；新增错误消息、`[结果校验]`、`[未执行]` 三类结果的读法（第 16–18 条）。
+- `app.py`：生成回答失败时用 `logger.exception` 记录完整堆栈，界面保留简短提示并说明下次提问会自动修复。
+- 文档同步：`README.md`（能力表、4.5、目录树、阅读路线、配置速查、限制、文档索引）、`docs/PROJECT_OVERVIEW.md`（分层、失败与校验、目录、问题索引）、`docs/ARCHITECTURE.md`（3、4.1、5.1、5.2、6.4、6.5、11.1、11.3、12 TD-17/TD-30、13.10、16.1）、`docs/OS_TOOLS.md`（7、8、8.9）、`docs/architecture.svg`（编排层）、`AGENTS.md`。
 - 工具总数由 20 增至 21（电脑操作 13 + 业务 7 + 桌面控制 1）；需要确认的工具由 9 增至 10，`computer_use` 内部 15/18 个动作需确认。
 - 桌面控制复用 OmniPilot 工具层而不是嵌套 Agent：保持单层 ReAct 循环，每一步走本项目的 HITL、操作记录与审计日志。
 - 三种会话记忆统一走 LangGraph checkpointer（`short_term` → `InMemorySaver`；`file` → `FileCheckpointSaver`；`postgres` → 原有 `PostgresSaver`）；`execute_stream` 每次只传当前一条 `HumanMessage`，历史由 `thread_id` 自动恢复。
@@ -76,6 +91,10 @@
 
 ### Fixed
 
+- 工具抛异常不再打断整轮：异常先由重试中间件判断，重试耗尽后转成 `status=error` 的 `ToolMessage`，模型能继续换参数/换工具/如实说明（此前异常一路冒泡，`app.py` 只显示“生成回答失败”）。
+- 修复中断后会话被污染：工具崩溃时 checkpoint 会留下没有 `ToolMessage` 的 `tool_calls`、`next` 停在 `tools`，下一次提问把脏历史发给模型；现在提交新消息前自动补占位结果。
+- 修复联网搜索静默失败：百度搜索 401/超时只写日志并 `return ""`，模型收到空串后误以为“没搜到”；现在错误可见、可按规则重试。
+- 约束模型“虚报已重试”：真实冒烟中发现模型会在回答里声称“已重试”而实际没有，已在错误消息与提示词中明确“系统不会自动重试所有工具，要重试就真的发起调用”。
 - `log_before_model` 不再假设工具结果一定是字符串，修复截图返回 content block 列表时 `.strip()` 崩溃的问题。
 - 用户拒绝截图后，模型不再编造“已截图/看到屏幕内容”，而是在提示词约束下明确说明操作被拒绝、未执行。
 - 操作记录与审计日志不再包含截图 base64；桌面文字输入与剪贴板正文做定向脱敏。

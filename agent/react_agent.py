@@ -23,7 +23,10 @@ from agent.tools.os_tools import (
 from agent.tools.middleware import (
     monitor_tool, log_before_model, report_prompt_switch,
     pii_middleware_email, pii_middleware_phone, model_fallback_middleware,
+    tool_error_middleware, tool_retry_middleware,
 )
+from agent.resilience import repair_thread_state
+from utils.logger_handler import logger
 
 # 会读取敏感信息或修改电脑状态的工具，调用前必须由用户确认
 CONFIRM_TOOLS = {
@@ -112,6 +115,10 @@ class ReactAgent:
                 model_fallback_middleware,
                 pii_middleware_email,
                 pii_middleware_phone,
+                # 工具异常 → error ToolMessage（保住 ReAct 循环，不让整轮崩掉）
+                tool_error_middleware,
+                # 只对幂等工具的瞬时错误做有限重试
+                tool_retry_middleware,
                 monitor_tool,
                 log_before_model,
                 report_prompt_switch,
@@ -124,12 +131,16 @@ class ReactAgent:
     def execute_stream(self, query: str, thread_id: str | None = None):
         """提交一条用户消息，流式返回文本、工具记录与待确认事件。"""
         self._resume_pending_actions = []
+        config = self._build_config(thread_id)
+        # 上一次运行若在工具执行中崩溃，checkpoint 里会留下没有结果的 tool_call；
+        # 先补占位结果，避免把脏历史发给模型（常见后果是 400 或模型被带偏）。
+        self._repair_pending_tool_calls(config)
         input_dict = {
             "messages": [
                 {"role": "user", "content": query}
             ]
         }
-        yield from self._stream(input_dict, self._build_config(thread_id))
+        yield from self._stream(input_dict, config)
 
     def resume_stream(
         self,
@@ -145,6 +156,17 @@ class ReactAgent:
         """
         self._resume_pending_actions = list(pending_actions or [])
         yield from self._stream(Command(resume={"decisions": decisions}), self._build_config(thread_id))
+
+    def _repair_pending_tool_calls(self, config: dict) -> None:
+        """补齐上一次中断遗留的悬空工具调用；失败不影响本轮请求。"""
+        try:
+            repaired = repair_thread_state(self.agent, config)
+        except Exception as exc:  # noqa: BLE001 - 自愈失败不应阻止用户提问
+            logger.warning(f"[react_agent]会话自愈失败，已跳过：{exc}")
+            return
+        if repaired:
+            names = "、".join(str(call.get("name") or "?") for call in repaired)
+            logger.warning(f"[react_agent]已补齐 {len(repaired)} 个上次中断的工具调用：{names}")
 
     @staticmethod
     def _build_config(thread_id: str | None) -> dict:

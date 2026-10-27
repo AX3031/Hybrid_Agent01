@@ -29,7 +29,7 @@
 | 层 | 关键组件 | 职责 |
 | --- | --- | --- |
 | 表现层 | `app.py` | 收集输入、展示流式输出、渲染高危操作确认卡片 |
-| 编排层 | `ReactAgent` + 8 个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，拦截高危操作 |
+| 编排层 | `ReactAgent` + 10 个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，兜底工具异常与结果校验，拦截高危操作 |
 | 工具层 | `os_tools`（13 个）+ `agent_tools`（7 个）+ `computer_use`（1 个，18 动作） | 本机信息、文件读写/搜索、进程、命令、业务查询、桌面控制 |
 | 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 |
 | 模型/存储 | `ChatOpenAI`、记忆后端、本地文件系统 | 推理、上下文持久化、文件读写 |
@@ -38,9 +38,9 @@
 ## 4. 一次请求怎么走
 
 1. `app.py` 接收输入，调用 `ReactAgent.execute_stream(query, thread_id)`。
-2. `create_agent` 构建 LangGraph，传入 `context={"report": False}`、`config={"thread_id": ...}`。
+2. `create_agent` 构建 LangGraph，传入 `context={"report": False}`、`config={"thread_id": ...}`；提交前先用 `resilience.repair_thread_state` 修复上次中断留下的悬空工具调用。
 3. 中间件在模型调用外层做模型降级与 PII 脱敏，并在调用前记录日志、选择系统提示词。
-4. 模型返回 `tool_calls`：只读工具直接执行；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；`computer_use` 由 `when` 谓词按 `action` 细分（3 个只读动作放行，其余确认）。
+4. 模型返回 `tool_calls`：只读工具直接执行；工具异常先按规则重试，重试耗尽后转成 `status=error` 的 `ToolMessage`；文件类操作在写审计前做结果校验；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；`computer_use` 由 `when` 谓词按 `action` 细分（3 个只读动作放行，其余确认）。
 5. 挂起时 `ReactAgent` 产出 `AgentEvent(type="interrupt")`，`app.py` 渲染确认卡片；用户批准后用 `Command(resume=...)` 继续。
 6. 循环直到模型返回最终 `AIMessage`；`app.py` 用 `_render_events` 渲染文本并 `st.rerun()`。
 
@@ -58,6 +58,8 @@
 
 **自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；单轮最多 20 次工具调用。
 
+**失败与校验**：工具异常不打断循环（`ToolErrorMiddleware` → `status=error` 的 ToolMessage）；只对幂等/只读工具的瞬时错误（超时/断连/429/5xx）重试 2 次；写文件、建目录、移动、复制、删除在写审计前做确定性后置校验，校验不过就标 `error`；上次崩溃留下的悬空 `tool_call` 会在下次提问前自动补齐占位结果。
+
 **操作留痕**：聊天页「本次操作记录」展示每一步的人话解释；`logs/audit_YYYYMMDD.jsonl` 记录结构化审计日志。
 
 **报告场景**：模型调用 `fill_context_for_report` → `monitor_tool` 设置 `runtime.context["report"]=True` → 下一次模型调用由 `report_prompt_switch` 切换到 `report_prompt.txt`。标记只在本次请求内有效。
@@ -65,16 +67,17 @@
 ## 6. 目录速查
 
 ```text
-agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、安全策略与中间件
+agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、会话自愈、结果校验、安全策略与中间件
 model/        Chat 模型工厂
 utils/        配置、路径、日志、提示词加载
 config/       model / agent / prompts
 prompts/      main / report
 data/         external/records.csv
 memorys/      记忆方式工厂 + 短期/JSON/PostgreSQL checkpointer
-docs/         架构文档、电脑操作功能说明与 SVG
+tests/        unittest 用例（假模型，不联网）
+docs/         架构文档、改造复盘、电脑操作说明与 SVG
 env_patch/    .pth + sitecustomize.py
-scripts/      apply_env_patch.py（把 env_patch 装进 .venv，uv sync 后执行）
+scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py（离线验证+证据）
 .vscode/      IDE 工作区配置（解释器 + 集成终端放行 Activate.ps1，随仓库生效）
 ```
 
@@ -102,6 +105,9 @@ scripts/      apply_env_patch.py（把 env_patch 装进 .venv，uv sync 后执�
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
 | 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
+| 工具失败/重试/结果校验怎么工作？ | [agent-resilience/01-入门讲解-失败重试与结果验证.md](agent-resilience/01-入门讲解-失败重试与结果验证.md) |
+| 怎么验证改动没退化？ | [agent-resilience/02-验证与交付复盘.md](agent-resilience/02-验证与交付复盘.md) + `scripts/verify_agent_resilience.py` |
+| 长任务改造的方法论？ | [06-长期改造经验与方法论.md](06-长期改造经验与方法论.md) |
 | 桌面控制（截图/键鼠/应用）怎么用？ | [OS_TOOLS.md](OS_TOOLS.md) 第 5.8–5.12 节 + [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统与安全模型) |
 | 安全能力、威胁模型、技术债与改进路线？ | [SECURITY_REPORT.md](SECURITY_REPORT.md) |
 | 怎么把 Agent 做得更安全可控？ | [AGENT_SECURITY_PLAYBOOK.md](AGENT_SECURITY_PLAYBOOK.md) |

@@ -99,10 +99,16 @@ def fill_context_for_report():
     return "fill_context_for_report已调用"
 
 
-@tool(description="调用百度联网搜索实时信息，输入字符串查询内容，以纯字符串形式返回搜索结果")
+@tool(description="调用百度联网搜索实时信息，输入字符串查询内容，以纯字符串形式返回搜索结果；未配置密钥或网络/鉴权失败时抛出异常，由中间件转成可重试的错误消息")
 def web_search_baidu(query: str, **kwargs) -> str:
     api_key_baidu = os.getenv("API_KEY_BAIDU")
     baidu_websearch_url = "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
+
+    if not api_key_baidu:
+        # 配置问题属于确定性失败：直接抛，不重试，让模型明确告诉用户去补 .env
+        raise RuntimeError(
+            "未配置环境变量 API_KEY_BAIDU，联网搜索不可用；请在 .env 中填写后重启应用。"
+        )
 
     headers = {
         "Content-Type": "application/json",
@@ -117,12 +123,17 @@ def web_search_baidu(query: str, **kwargs) -> str:
     }
 
     try:
-        response = requests.post(baidu_websearch_url, headers=headers, json=payload, timeout=30)
+        # timeout=(连接超时, 读取超时)：避免一个慢请求把整轮对话卡住
+        response = requests.post(
+            baidu_websearch_url, headers=headers, json=payload, timeout=(5, 30)
+        )
         response.raise_for_status()
         data = response.json()
-    except Exception as e:
-        logger.warning(f"[web_search_baidu]调用百度AI搜索失败：{e}")
-        return ""
+    except requests.exceptions.RequestException as exc:
+        # 不吞异常：重试与“转成错误消息”交给 ToolRetryMiddleware / ToolErrorMiddleware，
+        # 模型因此能看到真实原因（401、超时、5xx），而不是收到一个空字符串。
+        logger.warning(f"[web_search_baidu]调用百度AI搜索失败：{exc}")
+        raise
 
     def _pick_text(*vals) -> str:
         """按优先级从若干候选字段中挑出第一个非空字符串。"""
@@ -199,7 +210,9 @@ def web_search_baidu(query: str, **kwargs) -> str:
 
     if not parts:
         logger.warning(f"[web_search_baidu]未检索到与{query}相关的结果")
-        return ""
+        # 搜索成功但没有结果，是“查不到”而不是“失败”：给一句可读的说明，
+        # 避免模型把空字符串误当成静默成功。
+        return f"（百度搜索没有返回与「{query}」相关的可用结果）"
 
     return "\n\n".join(parts)
 

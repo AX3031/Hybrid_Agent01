@@ -1,7 +1,16 @@
 from typing import Callable
+
+import requests
 from utils.prompt_loader import load_system_prompts,load_report_prompts
 from langchain.agents import AgentState
-from langchain.agents.middleware import wrap_tool_call, before_model, dynamic_prompt, ModelRequest
+from langchain.agents.middleware import (
+    wrap_tool_call,
+    before_model,
+    dynamic_prompt,
+    ModelRequest,
+    ToolErrorMiddleware,
+    ToolRetryMiddleware,
+)
 from langchain.tools.tool_node import ToolCallRequest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
@@ -12,6 +21,7 @@ from agent.tools.safety import (
     sanitize_tool_result,
     summarize_content_for_log,
 )
+from agent.tools.verification import enrich_tool_message
 from langgraph.runtime import Runtime
 
 
@@ -44,8 +54,14 @@ def monitor_tool(
         if tool_name == 'fill_context_for_report':
             request.runtime.context["report"] = True
 
+        # 结果校验：按参数核对“声称成功”的后置条件，通不过就把状态改成 error
+        verified = enrich_tool_message(tool_name, tool_args, result)
+        if verified is not result and getattr(verified, "status", "success") == "error":
+            logger.warning(f"[tool monitor]工具{tool_name}结果校验未通过")
+        result = verified
+
         content = getattr(result, "content", result)
-        status = getattr(result, "status", "success")
+        status = getattr(result, "status", "success") or "success"
         log_tool_call(
             session_id,
             tool_name,
@@ -111,4 +127,77 @@ from utils.config_handler import model_conf
 model_fallback_middleware = ModelFallbackMiddleware(
     chat_model,
     ChatModelFactory().generator(model_name=model_conf["backup_chat_model_name"]),
+)
+
+
+# ---------------------------------------------------------------------------
+# 工具失败策略：异常转消息 + 有限重试
+#
+# 顺序很重要（列表里越靠前 = 越外层）：
+#   tool_error_middleware -> tool_retry_middleware -> monitor_tool -> 工具
+# 异常先由重试层判断能不能重试，重试耗尽后回到错误层转成 ToolMessage，
+# 这样整条 ReAct 循环不会因为一次工具崩溃而中断。
+# ---------------------------------------------------------------------------
+
+# 只对幂等/只读工具自动重试；写盘、删除、移动复制、命令、键鼠操作一律不重试。
+RETRYABLE_TOOLS = [
+    "web_search_baidu",
+    "fetch_external_data",
+    "get_system_info",
+    "list_processes",
+    "list_directory",
+    "read_text_file",
+    "search_files",
+    "search_text",
+]
+
+
+def _should_retry_tool_error(exc: Exception) -> bool:
+    """只重试“可能自己好起来”的错误。
+
+    超时/连接中断/429/5xx 值得再试一次；401/403/404、参数错误、
+    文件不存在这类确定性失败重试只会更慢、更贵，甚至放大副作用。
+    """
+    if isinstance(exc, requests.exceptions.HTTPError):
+        response = exc.response
+        if response is None:
+            return False
+        return response.status_code == 429 or response.status_code >= 500
+    if isinstance(
+        exc,
+        (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            TimeoutError,
+            ConnectionError,
+        ),
+    ):
+        return True
+    return False
+
+
+def _tool_error_content(exc: Exception, request: ToolCallRequest) -> str:
+    """把异常整理成模型能读懂、且不泄露堆栈的错误消息。"""
+    tool_name = request.tool_call.get("name", "未知工具")
+    detail = " ".join(str(exc).split())[:300] or "无更多信息"
+    logger.error(f"[tool error]工具{tool_name}异常已转为错误消息：{type(exc).__name__}: {detail}")
+    return (
+        f"工具 `{tool_name}` 执行失败（{type(exc).__name__}）：{detail}\n"
+        "本轮对话没有中断。请判断原因：参数问题就换参数；如果是瞬时故障，可以重新发起一次调用"
+        "（系统不会自动重试所有工具，所以不要在回答里声称“已重试”）；"
+        "仍然失败就向用户说明，不要假装成功。"
+    )
+
+
+tool_error_middleware = ToolErrorMiddleware(on_error=_tool_error_content)
+
+tool_retry_middleware = ToolRetryMiddleware(
+    max_retries=2,
+    tools=RETRYABLE_TOOLS,
+    retry_on=_should_retry_tool_error,
+    # 重试耗尽后把异常抛给外层的错误中间件，而不是伪装成正常结果
+    on_failure="error",
+    initial_delay=0.3,
+    backoff_factor=2.0,
+    max_delay=2.0,
 )

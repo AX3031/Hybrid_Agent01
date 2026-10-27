@@ -38,7 +38,7 @@ memorys/chat_history/
 ~$*
 
 # 本地需求文档（不纳入版本管理）
-对RAG的初步要求.docx
+对OS_GUI_AGNET的初步要求.md
 
 # 操作系统杂物
 .DS_Store

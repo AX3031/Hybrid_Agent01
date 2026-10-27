@@ -15,6 +15,7 @@
 | 5 分钟知道项目是什么 | 本文第 1–2 节 + [1 页速览](docs/PROJECT_OVERVIEW.md) | 5 分钟 |
 | 把项目跑起来 | 本文第 4 节 + 第 7 节 | 15 分钟 |
 | 改代码/加功能 | [ARCHITECTURE](docs/ARCHITECTURE.md) 第 5、6、13 节 | 30–60 分钟 |
+| 想懂“工具失败为什么不再停”、或要跑回归验证 | [入门讲解](docs/agent-resilience/01-入门讲解-失败重试与结果验证.md) + [验证复盘](docs/agent-resilience/02-验证与交付复盘.md) | 20–30 分钟 |
 | 排障/上线 | [ARCHITECTURE](docs/ARCHITECTURE.md) 第 10、11、12 节 | 按需 |
 
 **文档地图**
@@ -67,6 +68,10 @@
 | 能力 | 状态 | 实现位置 |
 | --- | --- | --- |
 | 多轮工具调用（ReAct 循环） | ✅ 已接入 | `agent/react_agent.py` → `create_agent` |
+| 工具异常不中断循环 | ✅ 已接入 | `agent/tools/middleware.py` → `tool_error_middleware`（异常转 `status=error` 的 ToolMessage） |
+| 幂等工具有限重试 | ✅ 已接入 | `agent/tools/middleware.py` → `tool_retry_middleware`（仅只读工具；超时/断连/429/5xx） |
+| 文件操作结果校验 | ✅ 已接入 | `agent/tools/verification.py` → 写/建目录/移动/复制/删除的后置核对 |
+| 会话自愈（悬空 tool_call） | ✅ 已接入 | `agent/resilience.py` + `ReactAgent.execute_stream` |
 | 系统信息 / 磁盘 / 进程查看 | ✅ 已接入（需确认） | `agent/tools/os_tools.py` → `get_system_info`、`list_processes` |
 | 目录浏览 / 文本读取 / 文件搜索 | ✅ 已接入 | `list_directory`、`read_text_file`、`search_files`、`search_text` |
 | 文件写入 / 移动 / 复制 / 删除 | ✅ 已接入（需确认） | `write_text_file`、`move_path`、`copy_path`、`delete_path` |
@@ -80,6 +85,7 @@
 | 危险命令与可执行文件拦截 | ✅ 已接入 | `safety.py` 的 `check_command` / `check_write_suffix` |
 | 单轮工具调用上限 | ✅ 已接入 | `ToolCallLimitMiddleware`（20 次/轮） |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
+| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`）+ `scripts/verify_agent_resilience.py` |
 | 模型调用前状态日志 | ✅ 已接入 | `agent/tools/middleware.py` → `log_before_model` |
 | 报告场景动态提示词 | ✅ 已接入 | `fill_context_for_report` + `report_prompt_switch` |
 | 联网搜索（百度） | ✅ 已接入 | `agent/tools/agent_tools.py` → `web_search_baidu` |
@@ -209,9 +215,10 @@ uv run -m agent.tools.os_tools   # 验证电脑工具（不调用模型）
 uv run -m agent.tools.computer_use  # 只读桌面工具冒烟（屏幕尺寸/应用列表/等待）
 uv run -m utils.logger_handler   # 验证日志输出
 uv run python scripts/apply_env_patch.py --check  # 验证虚拟环境补丁是否已生效
+.venv\Scripts\python.exe scripts\verify_agent_resilience.py  # 跑离线验证用例并生成证据 JSON
 ```
 
-> `agent.react_agent` 会触发真实模型调用，运行前确认 `.env` 已配置；其余三条都不调用模型。
+> `agent.react_agent` 会触发真实模型调用，运行前确认 `.env` 已配置；其余几条都不调用模型（验证脚本用假模型）。
 
 ---
 
@@ -230,13 +237,15 @@ project2/
 ├── .env                        # 本地密钥（git 忽略）
 ├── .vscode/settings.json       # ⚙️ IDE 配置：解释器 + 集成终端 Bypass（git 跟踪，见 4.2.1）
 ├── agent/
-│   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流
+│   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流、会话自愈入口
+│   ├── resilience.py           # ✅ 悬空 tool_call 的识别与修复
 │   └── tools/
 │       ├── os_tools.py         # ✅ 13 个电脑信息与文件操作工具
 │       ├── computer_use.py     # ✅ 1 个桌面控制工具（18 个动作，复用 OmniPilot）
 │       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
+│       ├── verification.py     # ✅ 文件操作结果的后置校验
 │       ├── agent_tools.py      # ✅ 7 个业务工具
-│       └── middleware.py       # ✅ 6 个中间件
+│       └── middleware.py       # ✅ 8 个中间件（含错误兜底、有限重试）
 ├── model/
 │   └── factory.py              # ✅ Chat 模型工厂
 ├── memorys/
@@ -257,8 +266,10 @@ project2/
 ├── logs/                       # 按日日志
 ├── env_patch/                  # ⚙️ 虚拟环境补丁（.pth + sitecustomize.py）
 ├── scripts/
-│   └── apply_env_patch.py      # ⚙️ 把 env_patch 装进 .venv（每次 uv sync 后执行）
-└── docs/                       # 速览、架构文档、功能说明与 SVG 图
+│   ├── apply_env_patch.py      # ⚙️ 把 env_patch 装进 .venv（每次 uv sync 后执行）
+│   └── verify_agent_resilience.py  # ✅ 跑离线用例并生成证据快照
+├── tests/                      # ✅ unittest 用例（假模型，不联网）
+└── docs/                       # 速览、架构文档、功能说明、改造复盘与 SVG 图
 ```
 
 图例：✅ 主链路 / 🧪 示例或预留 / ⚙️ 基础设施。
@@ -275,10 +286,11 @@ project2/
 4. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
 5. `agent/tools/computer_use.py`：看单个工具如何按 `action` 分发到 OmniPilot 的 screen/gui/clipboard/apps，以及哪些动作直接执行、哪些需要确认。
 6. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
-7. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏与模型降级。
-8. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
-9. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
-10. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
+7. `agent/tools/middleware.py`：看工具监控、模型前日志、动态提示词切换、PII 脱敏、模型降级，以及错误兜底与有限重试。
+8. `agent/resilience.py` + `agent/tools/verification.py`：看中断后如何自愈、工具结果如何被确定性核对。
+9. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认。
+10. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
+11. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
 
 更完整的调用时序、配置表、扩展步骤和已知问题见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -299,6 +311,8 @@ project2/
 | 换外部 CSV 路径 | `config/agent.yml` |
 | 换提示词 | `prompts/*.txt`（Agent 系统提示词每次模型调用前重读） |
 | 新增工具 | `agent/tools/os_tools.py` + `agent/react_agent.py` 的 tools 列表；有副作用时同步加入 `CONFIRM_TOOLS` |
+| 调整自动重试范围/条件 | `agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` 与 `_should_retry_tool_error` |
+| 调整结果校验范围 | `agent/tools/verification.py` 的 `_CHECKERS` 与 `_SUCCESS_PREFIXES` |
 | 新增场景 | 参考报告场景：工具 + 中间件标记 + 动态提示词 + prompt 文件 |
 | 切换会话记忆方式 | Streamlit **输入框左侧的记忆按钮**（点击弹出列表）：短期记忆（默认，不存档记忆）/ 本地记忆（以JSON格式本地存档）/ PostgreSQL（存档入数据库，需配置） |
 | 管理会话 ID / 新建会话 / 清空记忆 | Streamlit 左侧栏「会话管理」（后续可在此列出会话记录） |
@@ -323,6 +337,7 @@ project2/
 8. **桌面控制禁止启动终端/脚本宿主**：`app_open` 拒绝 `cmd`、PowerShell、WSL、注册表、磁盘工具等，避免绕过 `run_command`；需要执行命令时走 `run_command`。
 9. **工作区限制基于路径比较**：不防符号链接/junction 逃逸，`resolve()` 已尽量解析。
 10. **界面保存会重写配置文件**：通过「工作区域」按钮保存时使用 `yaml.safe_dump`，`config/agent.yml` 中的注释会丢失。
+11. **结果校验只覆盖文件类工具**：写文件、建目录、移动、复制、删除有确定性后置校验；`run_command` 的退出码与 `computer_use` 的画面结果仍靠模型判断。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 
@@ -339,6 +354,10 @@ project2/
 | [docs/SECURITY_REPORT.md](docs/SECURITY_REPORT.md) | 安全评估报告：会做/能做/不会做/不能做、措施实现、STRIDE/OWASP 映射、技术债、改进路线 |
 | [docs/AGENT_SECURITY_PLAYBOOK.md](docs/AGENT_SECURITY_PLAYBOOK.md) | Agent 安全实战经验：六层防御、十二条经验、HITL 分级、提示词注入、反模式、30/60/90 路线 |
 | [docs/OMNIPILOT_INTEGRATION_REPORT.md](docs/OMNIPILOT_INTEGRATION_REPORT.md) | OmniPilot 桌面控制接入报告（小白版）：做了什么、实现方法、怎么用、不能怎么用、风险 |
+| [docs/06-长期改造经验与方法论.md](docs/06-长期改造经验与方法论.md) | 长任务改造方法论：任务契约、评估尺、阶段门、复盘与反幻觉 |
+| [docs/agent-resilience/00-进度备忘录.md](docs/agent-resilience/00-进度备忘录.md) | 循环韧性改造的进度、决策与已知缺口 |
+| [docs/agent-resilience/01-入门讲解-失败重试与结果验证.md](docs/agent-resilience/01-入门讲解-失败重试与结果验证.md) | 入门讲解：ReAct 循环、失败四根因、重试规则、结果校验、会话自愈 |
+| [docs/agent-resilience/02-验证与交付复盘.md](docs/agent-resilience/02-验证与交付复盘.md) | 验证体系、用例结果、真实冒烟、阶段门与复盘 |
 | [AGENTS.md](AGENTS.md) | AI 阅读约定（可选，供编码助手使用） |
 | [CHANGELOG.md](CHANGELOG.md) | 重要变更：加了什么 / 改了什么 / 修了什么 |
 
