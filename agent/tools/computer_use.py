@@ -23,6 +23,7 @@ import base64
 import io
 import os
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -84,6 +85,7 @@ ComputerAction = Literal[
     "clipboard_get",
     "clipboard_set",
     "app_open",
+    "app_open_start_menu",
     "app_close",
     "app_list",
 ]
@@ -109,6 +111,7 @@ _ACTION_PARAMS: dict[str, tuple[str, ...]] = {
     "clipboard_get": (),
     "clipboard_set": ("text",),
     "app_open": ("name", "arguments"),
+    "app_open_start_menu": ("name",),
     "app_close": ("name", "force"),
     "app_list": ("filter", "limit"),
 }
@@ -126,6 +129,7 @@ _REQUIRED_PARAMS: dict[str, tuple[str, ...]] = {
     "hotkey": ("keys",),
     "clipboard_set": ("text",),
     "app_open": ("name",),
+    "app_open_start_menu": ("name",),
     "app_close": ("name",),
 }
 
@@ -241,12 +245,77 @@ _BLOCKED_APP_KEYWORDS = (
     "format.com",
 )
 
+# 开始菜单/控制面板里高危程序的显示名（中英文）：`cmd /c start` 与快捷方式启动
+# 都可能按这些名字拉起终端/注册表/磁盘工具，必须一并拒绝。
+_BLOCKED_APP_DISPLAY_NAMES = (
+    "命令提示符",
+    "命令提示",
+    "注册表编辑器",
+    "注册表",
+    "任务计划程序",
+    "计划任务",
+    "磁盘管理",
+    "磁盘分区",
+    "组件服务",
+    "控制面板",
+    "服务",
+    "本地安全策略",
+    "本地组策略",
+    "组策略",
+    "计算机管理",
+    "管理工具",
+    "运行",
+    "command prompt",
+    "commandprompt",
+    "registry editor",
+    "task scheduler",
+    "taskschd",
+    "disk management",
+    "diskmgmt",
+    "component services",
+    "comexp",
+    "control panel",
+    "services.msc",
+    "computer management",
+    "microsoft management console",
+    "group policy",
+    "local security",
+    "run dialog",
+)
+
 _MAX_TEXT_CHARS = 10_000
 _MAX_CLIPBOARD_CHARS = 20_000
 _MAX_WAIT_SECONDS = 10.0
 # 原图不超过这个像素数时直接发送原图，保证图片像素与屏幕坐标一致；
 # 4K（约 830 万像素）会走缩放回退，并在结果里给出换算比例。
 _MAX_FULL_IMAGE_PIXELS = 6_000_000
+
+# 开始菜单兜底用的友好名别名表：微信/QQ 这类国内软件的快捷方式常有中英文两种名字。
+_APP_NAME_ALIASES: dict[str, tuple[str, ...]] = {
+    "微信": ("wechat", "weixin"),
+    "weixin": ("微信", "wechat"),
+    "wechat": ("微信", "weixin"),
+    "qq": ("腾讯qq", "qqnt"),
+    "腾讯qq": ("qq", "qqnt"),
+    "钉钉": ("dingtalk",),
+    "dingtalk": ("钉钉",),
+    "企业微信": ("wxwork", "weixinwork"),
+    "wxwork": ("企业微信",),
+    "飞书": ("lark",),
+    "lark": ("飞书",),
+    "计算器": ("calculator",),
+    "calculator": ("计算器",),
+    "记事本": ("notepad",),
+    "notepad": ("记事本",),
+    "画图": ("mspaint", "paint"),
+    "微软 Edge": ("msedge", "edge"),
+    "edge": ("msedge", "microsoft edge"),
+    "chrome": ("谷歌浏览器", "google chrome"),
+    "谷歌浏览器": ("chrome", "google chrome"),
+    "word": ("microsoft word",),
+    "excel": ("microsoft excel",),
+    "powerpoint": ("microsoft powerpoint",),
+}
 
 
 def action_requires_confirmation(action: Any) -> bool:
@@ -319,6 +388,24 @@ def _guard_locate_image(raw: str) -> tuple[str, str]:
     return str(target), ""
 
 
+def _is_high_risk_display_name(name: str) -> bool:
+    """按中英文显示名精确判断是否指向终端/注册表/磁盘/管理单元等高危程序。
+
+    用精确匹配而不是子串，避免名字里含“服务/运行”等常用词的正常软件被误拦；
+    同时兼容快捷方式名（去 `.lnk`）与目标 exe 名（去 `.exe`）。
+    """
+    text = str(name or "").strip().lower()
+    if not text:
+        return False
+    base = Path(text).name
+    stem = base[: -len(".lnk")] if base.endswith(".lnk") else base
+    candidates = {text, base, stem}
+    candidates |= {c[: -len(".exe")] for c in candidates if c.endswith(".exe")}
+    return bool(candidates & set(_BLOCKED_APP_DISPLAY_NAMES)) or bool(
+        candidates & _BLOCKED_APPS
+    )
+
+
 def _guard_app_open(name: str) -> tuple[str, str]:
     """拦截终端/脚本宿主/系统工具；路径型名称必须落在工作区域内。"""
     text = str(name).strip()
@@ -336,6 +423,11 @@ def _guard_app_open(name: str) -> tuple[str, str]:
         return "", (
             f"出于安全考虑，拒绝启动终端/脚本宿主：{text}。"
             "如果确实需要执行命令，请使用 run_command。"
+        )
+    if _is_high_risk_display_name(text):
+        return "", (
+            f"出于安全考虑，拒绝启动系统工具（终端/注册表/磁盘/管理单元等）：{text}。"
+            "需要执行命令时请使用 run_command（带确认与危险命令黑名单）。"
         )
     if any(ch in text for ch in _BLOCKED_APP_CHARS):
         return "", f"应用名包含不允许的特殊字符，已拒绝：{text}"
@@ -371,6 +463,208 @@ def _guard_app_close(name: str) -> tuple[str, str]:
     if any(protected in stem for protected in _PROTECTED_STEMS if len(protected) >= 4):
         return "", f"出于安全考虑，拒绝关闭系统关键进程：{text}"
     return text, ""
+
+
+def _app_name_variants(name: str) -> dict[str, str]:
+    """生成开始菜单搜索用的候选名 -> 来源（name/alias）。
+
+    中文软件常以英文名命名快捷方式（微信 -> WeChat.lnk），因此把中英别名一并
+    纳入候选；别名只用于匹配快捷方式文件名，避免误命无关目标。
+    """
+    base = str(name or "").strip().lower()
+    base = base[: -len(".lnk")] if base.endswith(".lnk") else base
+    variants: dict[str, str] = {}
+    if base:
+        variants[base] = "name"
+    for alias in _APP_NAME_ALIASES.get(base, ()):
+        key = str(alias).strip().lower()
+        if key and key not in variants:
+            variants[key] = "alias"
+    return variants
+
+
+def _start_menu_dirs() -> list[Path]:
+    """Windows 开始菜单程序目录（本机用户 + 全体用户）。"""
+    candidates = [
+        Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs",
+        Path(
+            os.environ.get(
+                "ProgramData",
+                r"C:\ProgramData",
+            )
+        )
+        / "Microsoft/Windows/Start Menu/Programs",
+    ]
+    return [path for path in candidates if path.is_dir()]
+
+
+def _find_start_menu_shortcut(name: str) -> tuple[Path | None, str]:
+    """在开始菜单程序目录里找名字（或别名）命中的快捷方式。
+
+    优先文件名直接命中（返回命中名），其次别名命中（返回空命中名）。
+    """
+    variants = _app_name_variants(name)
+    if not variants:
+        return None, ""
+    fallback: Path | None = None
+    for directory in _start_menu_dirs():
+        try:
+            for current_root, _dirs, file_names in os.walk(directory):
+                for file_name in file_names:
+                    if not file_name.lower().endswith(".lnk"):
+                        continue
+                    stem = file_name[: -len(".lnk")].lower()
+                    if stem not in variants:
+                        continue
+                    path = Path(current_root) / file_name
+                    if variants[stem] == "name":
+                        return path, stem
+                    if fallback is None:
+                        fallback = path
+        except OSError:
+            continue
+    if fallback is not None:
+        return fallback, ""
+    return None, ""
+
+
+def _list_uwp_apps() -> list[tuple[str, str]]:
+    """用 PowerShell 列出已安装的 UWP/商店应用（显示名, AUMID）；失败返回空。"""
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-StartApps | ForEach-Object { \"$($_.Name)`t$($_.AppID)\" }",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            encoding="utf-8",
+            errors="ignore",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    apps: list[tuple[str, str]] = []
+    for line in (completed.stdout or "").splitlines():
+        if "\t" not in line:
+            continue
+        display, _, app_id = line.partition("\t")
+        display, app_id = display.strip(), app_id.strip()
+        if display and app_id:
+            apps.append((display, app_id))
+    return apps
+
+
+def _find_uwp_app(name: str) -> tuple[str, str] | None:
+    """在开始应用列表里按显示名/别名匹配一个 UWP 应用，返回（显示名, AUMID）。"""
+    variants = _app_name_variants(name)
+    if not variants:
+        return None
+    apps = _list_uwp_apps()
+    for display, app_id in apps:
+        if display.lower() in variants:
+            return display, app_id
+    for display, app_id in apps:
+        if any(variant in display.lower() for variant in variants):
+            return display, app_id
+    return None
+
+
+def _launch_uwp(app_id: str) -> tuple[bool, str]:
+    r"""用 `explorer.exe shell:AppsFolder\<AUMID>` 启动 UWP 应用。"""
+    try:
+        subprocess.Popen(  # noqa: S603
+            ["explorer.exe", f"shell:AppsFolder\\{app_id}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True, ""
+    except OSError as exc:
+        return False, str(exc)
+
+
+def _is_blocked_program_name(name: str) -> bool:
+    """综合判断一个程序名/路径是否命中高危黑名单（精确显示名 + 关键词 + 基名）。"""
+    if _is_high_risk_display_name(name):
+        return True
+    text = str(name or "").strip().lower()
+    if not text:
+        return False
+    base = Path(text).name
+    stem = base[: -len(".lnk")] if base.endswith(".lnk") else base
+    return any(keyword in base or keyword in stem for keyword in _BLOCKED_APP_KEYWORDS)
+
+
+def _resolve_shortcut_target(shortcut: Path) -> str:
+    """用 PowerShell 解析 .lnk 快捷方式的真实目标路径；失败返回空串。"""
+    escaped = str(shortcut).replace("'", "''")
+    script = f"(New-Object -ComObject WScript.Shell).CreateShortcut('{escaped}').TargetPath"
+    try:
+        completed = subprocess.run(  # noqa: S603
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            encoding="utf-8",
+            errors="ignore",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return (completed.stdout or "").strip()
+
+
+def _launch_start_menu_app(name: str) -> str:
+    """Windows 兜底：从开始菜单（快捷方式 / UWP）启动应用，返回给模型看的说明。
+
+    不依赖 `cmd /c start` 的模糊解析，而是把名字归一后到开始菜单程序目录
+    与商店应用列表里匹配；命中后还要解析快捷方式真实目标并重新过一遍高危
+    黑名单（命令提示符/注册表编辑器/磁盘工具等），避免用中文/显示名绕过。
+    """
+    if not _start_menu_dirs():
+        return _fail("当前系统没有可用的开始菜单目录，无法从开始菜单启动。")
+    shortcut, matched = _find_start_menu_shortcut(name)
+    if shortcut is not None:
+        # fail closed：快捷方式名、目标 exe 名任一命中高危黑名单都拒绝启动。
+        target = _resolve_shortcut_target(shortcut)
+        blockers = [shortcut.name]
+        if target:
+            blockers.append(Path(target).name)
+        if any(_is_blocked_program_name(item) for item in blockers):
+            shown = target or str(shortcut)
+            return _fail(
+                f"开始菜单命中的程序属于终端/脚本宿主/注册表/磁盘等高危工具，已拒绝启动：{shown}"
+            )
+        try:
+            os.startfile(str(shortcut))  # noqa: S606
+        except OSError as exc:
+            return _fail(f"从开始菜单启动快捷方式失败：{exc}")
+        note = f"（按别名 {matched} 命中）" if matched else ""
+        return (
+            f"已从 Windows 开始菜单启动「{name}」{note}：{shortcut}\n"
+            "启动方法已记录：若本次成功，可提示用户“保存为技能”，下次直接走开始菜单。"
+        )
+    uwp = _find_uwp_app(name)
+    if uwp is not None:
+        display, app_id = uwp
+        if _is_blocked_program_name(display) or _is_blocked_program_name(app_id):
+            return _fail(
+                f"开始菜单命中的商店应用属于终端/脚本宿主/系统工具，已拒绝启动：{display}"
+            )
+        ok, error = _launch_uwp(app_id)
+        if ok:
+            return (
+                f"已从 Windows 开始菜单启动商店应用「{display}」（{app_id}）。\n"
+                "启动方法已记录：若本次成功，可提示用户“保存为技能”。"
+            )
+        return _fail(f"启动商店应用失败：{error}")
+    return (
+        f"开始菜单里没找到「{name}」的快捷方式或商店应用。\n"
+        "建议：先 app_list 确认是否已运行；或换个中文名/英文名重试；"
+        "仍不行就告诉用户自行从开始菜单搜索，并确认软件是否已安装。"
+    )
 
 
 def _prepare_arguments(action: str, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -526,6 +820,12 @@ def _prepare_arguments(action: str, args: dict[str, Any]) -> tuple[dict[str, Any
         prepared["name"] = name
         prepared["arguments"] = arguments
 
+    elif action == "app_open_start_menu":
+        name, error = _guard_app_open(str(prepared.get("name", "")))
+        if error:
+            return {}, error
+        prepared["name"] = name
+
     elif action == "app_close":
         name, error = _guard_app_close(str(prepared.get("name", "")))
         if error:
@@ -647,7 +947,7 @@ def _format_result(action: str, result: Any) -> str | list[dict]:
     "屏幕：screenshot（截图并附加图片）、screen_size（分辨率）、locate_image（按模板找图）、wait（等待）；"
     "鼠标：click、double_click、right_click、move_mouse、drag、scroll；"
     "键盘：type_text、press_key、hotkey；"
-    "系统：clipboard_get、clipboard_set、app_open、app_close、app_list。"
+    "系统：clipboard_get、clipboard_set、app_open、app_open_start_menu（Windows 从开始菜单启动）、app_close、app_list。"
     "坐标原点在屏幕左上角，单位为像素；做点击/输入前先 screenshot 或 screen_size 确认位置。"
     "只有 screen_size、locate_image、wait 直接执行；截图、剪贴板、应用列表和所有鼠标键盘动作"
     "都会先请求用户确认。"
@@ -668,7 +968,7 @@ def computer_use(
     key: Annotated[str | None, "按键名，如 enter、tab、escape、f5、up、down。press_key 使用。"] = None,
     presses: Annotated[int, "按键次数，1-20。press_key 使用，默认 1。"] = 1,
     keys: Annotated[list[str] | str | None, "组合键，如 ['ctrl','s'] 或 'ctrl+s'。hotkey 使用。"] = None,
-    name: Annotated[str | None, "应用名称（如 Chrome、Calculator）或可执行文件路径。app_open / app_close 使用。"] = None,
+    name: Annotated[str | None, "应用名称（如 Chrome、Calculator、微信）或可执行文件路径。app_open / app_open_start_menu / app_close 使用。"] = None,
     arguments: Annotated[list[str] | str | None, "启动应用时的命令行参数。app_open 使用。"] = None,
     force: Annotated[bool, "关闭应用时是否强制结束。app_close 使用，默认 false。"] = False,
     name_filter: Annotated[str | None, "按名称过滤运行中的应用。app_list 使用。"] = None,
@@ -718,6 +1018,10 @@ def computer_use(
         time.sleep(float(prepared["seconds"]))
         return f"已等待 {prepared['seconds']:g} 秒。"
 
+    if action == "app_open_start_menu":
+        logger.info(f"[computer_use]从开始菜单启动应用：{prepared['name']}")
+        return _launch_start_menu_app(str(prepared["name"]))
+
     tool_instance = _tool_instance(action)
     if tool_instance is None:  # pragma: no cover - 由 _validate_action 兜底
         return _fail(f"动作 {action} 没有对应的 OmniPilot 工具")
@@ -731,7 +1035,21 @@ def computer_use(
     except Exception as exc:  # pragma: no cover - OmniPilot 内部已捕获大多数异常
         logger.error(f"[computer_use]动作 {action} 异常：{exc}")
         return _fail(f"{type(exc).__name__}: {exc}")
-    return _format_result(action, result)
+    formatted = _format_result(action, result)
+
+    # app_open 在 Windows 上对友好名走 `cmd /c start`（即发即忘），拿不到真实成败。
+    # 不在此处自动回退（会误把“启动成功”当成“未运行”造成重复启动，也会把未确认说成失败）；
+    # 只附一句中性引导：若用户反馈“打不开/没打开”且是 Windows，改用 app_open_start_menu。
+    if (
+        action == "app_open"
+        and isinstance(formatted, str)
+        and not formatted.startswith("桌面控制失败")
+    ):
+        formatted = (
+            f"{formatted}\n（若用户反馈没打开/打不开，且本机是 Windows，"
+            "请改用 computer_use(action=app_open_start_menu, name=...) 从开始菜单按中英文名启动）"
+        )
+    return formatted
 
 
 if __name__ == "__main__":

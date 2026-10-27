@@ -58,7 +58,7 @@
     <!-- Tool layer -->
     <rect x="40" y="352" width="1120" height="194" rx="14" fill="#ecfdf5" stroke="#a7f3d0"/>
     <text x="56" y="374" font-size="12" font-weight="600" fill="#047857" letter-spacing="1.2">工具层 · TOOLS（21 个 @tool；文件类受工作区限制，桌面类受确认/黑名单约束）</text>
-    <text x="64" y="521" font-size="10.5" fill="#047857">桌面控制：computer_use（1 个工具 / 18 动作，复用 OmniPilot 工具层；截图、鼠标键盘、剪贴板、应用启停）</text>
+    <text x="64" y="521" font-size="10.5" fill="#047857">桌面控制：computer_use（1 个工具 / 19 动作，复用 OmniPilot 工具层；截图、鼠标键盘、剪贴板、应用启停）</text>
     <text x="64" y="537" font-size="10.5" fill="#047857">另有 run_command / move_path / copy_path / create_directory / open_path（需确认）；删除默认进 .agent_trash；桌面只读动作直接执行，其余需确认</text>
 
     <rect x="64" y="388" width="250" height="48" rx="9" fill="#ffffff" stroke="#34d399" filter="url(#shadow)"/>

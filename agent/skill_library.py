@@ -200,13 +200,25 @@ def steps_from_operations(operations: list[dict] | None) -> list[str]:
 
 
 def _copy_screenshot(source: str, skill_id: str, index: int) -> str | None:
-    """复制一张截图到技能库；返回相对路径。非图片/超大/不存在时跳过。"""
+    """复制一张截图到技能库；返回相对路径。非图片/超大/不存在时跳过。
+
+    如果源文件已经在这个技能自己的截图目录里（编辑已保存技能时会把相对
+    路径回传成绝对路径），直接复用原相对路径，不再重新复制；否则会每次
+    编辑都叠一份 `00_01_xxx.png` 且旧件不清理。
+    """
     try:
         path = Path(source).resolve()
     except OSError:
         return None
     if not path.is_file() or path.suffix.lower() not in _SCREENSHOT_SUFFIXES:
         return None
+    base = skills_dir().resolve()
+    own_dir = base / "screenshots" / skill_id
+    try:
+        if path.is_relative_to(own_dir):
+            return path.relative_to(base).as_posix()
+    except (OSError, ValueError):
+        pass
     try:
         if path.stat().st_size > _MAX_SCREENSHOT_BYTES:
             logger.warning(f"[skills]截图超过 10MB，已跳过：{path}")
@@ -214,7 +226,7 @@ def _copy_screenshot(source: str, skill_id: str, index: int) -> str | None:
     except OSError:
         return None
 
-    target_dir = skills_dir() / "screenshots" / skill_id
+    target_dir = own_dir
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{index:02d}_{path.name}"
     try:
@@ -234,6 +246,17 @@ def _copy_screenshots(paths: list[str], skill_id: str, offset: int = 0) -> list[
     return result
 
 
+def _find_by_name(skills: list[dict], name: str) -> dict | None:
+    """按技能名查找已有技能；同名只比首尾去空白后的标题。"""
+    title = str(name or "").strip()
+    if not title:
+        return None
+    for item in skills:
+        if str(item.get("name") or "").strip() == title:
+            return item
+    return None
+
+
 def save_skill(
     *,
     name: str,
@@ -244,7 +267,11 @@ def save_skill(
     task_card: dict | None = None,
     skill_id: str = "",
 ) -> dict:
-    """新增或更新一个技能，返回保存后的公开结构。"""
+    """新增或更新一个技能，返回保存后的公开结构。
+
+    未传 `skill_id` 时按技能名对齐：同名视为更新而不是另建一份，
+    避免界面上重复点“保存”堆出一堆同名技能、看起来“没反应”。
+    """
     title = str(name or "").strip()
     if not title:
         raise ValueError("技能名不能为空")
@@ -253,6 +280,9 @@ def save_skill(
 
     skills = _read_all()
     existing = next((item for item in skills if item.get("id") == skill_id), None)
+    if existing is None and not skill_id:
+        # 技能库按“名称唯一”对普通用户更符合直觉：保存同名 = 更新这个技能。
+        existing = _find_by_name(skills, title)
     if existing is None:
         if len(skills) >= _MAX_SKILLS:
             raise ValueError(f"技能库最多保留 {_MAX_SKILLS} 个技能")

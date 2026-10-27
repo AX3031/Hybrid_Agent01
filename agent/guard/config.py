@@ -30,8 +30,83 @@ def read_agent_config() -> dict:
         return {}
 
 
+def _render_yaml_block(key: str, value) -> list[str]:
+    """把单个顶层配置项渲染成 YAML 块（含键行）。"""
+    dumped = yaml.safe_dump(
+        {key: value}, allow_unicode=True, sort_keys=False, default_flow_style=False
+    )
+    return [line.rstrip("\n") for line in dumped.splitlines()]
+
+
+def _replace_top_level_block(lines: list[str], key: str, block: list[str]) -> list[str] | None:
+    """替换顶层键的整块内容；键不存在时返回 None（由调用方追加）。"""
+    start = None
+    for index, line in enumerate(lines):
+        if line[:1] in {" ", "\t"}:
+            continue
+        if line.rstrip() == f"{key}:" or line.startswith(f"{key}:"):
+            start = index
+            break
+    if start is None:
+        return None
+    # 只扫描“属于这个键”的行：缩进行或列于 0 列的块序列项（`- xxx`）；
+    # 碰到空行、顶层注释或下一个顶层键就停，把它们当作下一节的前导原样保留。
+    end = start + 1
+    while end < len(lines):
+        line = lines[end]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            break
+        if line[:1] in {" ", "\t"} or stripped.startswith("- ") or stripped == "-":
+            end += 1
+            continue
+        break
+    return lines[:start] + block + lines[end:]
+
+
+def _atomic_write_text(text: str) -> None:
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = _CONFIG_PATH.with_suffix(".yml.tmp")
+    with open(temp_path, "w", encoding="utf-8") as stream:
+        stream.write(text)
+    os.replace(temp_path, _CONFIG_PATH)
+
+
+def update_agent_config_block(key: str, value) -> bool:
+    """定点替换 agent.yml 里单个顶层配置项，保留注释与其它配置原样。
+
+    界面保存工作区域/只读开关以前是整份 `yaml.safe_dump` 回写，
+    会把注释、空行和无关配置（如 sensitive_dirs）一起重排；
+    这里只替换目标键的块，其余行逐行原样保留。返回是否完成了替换；
+    文件缺失或键不存在时写入新块（返回 False 供调用方判断）。
+    """
+    with _CONFIG_LOCK:
+        block = _render_yaml_block(key, value)
+        try:
+            original = _CONFIG_PATH.read_text(encoding="utf-8")
+        except OSError:
+            original = ""
+        if original:
+            newline = "\r\n" if "\r\n" in original else "\n"
+            lines = original.replace("\r\n", "\n").split("\n")
+            replaced = _replace_top_level_block(lines, key, block)
+            if replaced is not None:
+                _atomic_write_text(newline.join(replaced).rstrip("\n") + "\n")
+                return True
+            stripped = "\n".join(line for line in lines if line.strip())
+            text = stripped.rstrip("\n") + "\n\n" + "\n".join(block) + "\n"
+            _atomic_write_text(text.replace("\n", newline))
+        else:
+            _atomic_write_text("\n".join(block) + "\n")
+        return False
+
+
 def write_agent_config(config: dict) -> None:
-    """原子写回 agent.yml，避免写一半把配置写坏。"""
+    """原子写回 agent.yml，避免写一半把配置写坏。
+
+    注意：这是整份重 dump，会丢掉注释；界面上的单项修改请改用
+    `update_agent_config_block`，只有拿到完整配置结构时才用本函数。
+    """
     with _CONFIG_LOCK:
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         temp_path = _CONFIG_PATH.with_suffix(".yml.tmp")
@@ -41,11 +116,8 @@ def write_agent_config(config: dict) -> None:
 
 
 def set_config_value(key: str, value) -> None:
-    """修改单个配置项并立即写回。"""
-    with _CONFIG_LOCK:
-        config = read_agent_config()
-        config[key] = value
-        write_agent_config(config)
+    """修改单个顶层配置项并立即写回；注释和其它配置保持原样。"""
+    update_agent_config_block(key, value)
 
 
 def read_only_enabled() -> bool:

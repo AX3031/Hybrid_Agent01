@@ -270,20 +270,19 @@ def validate_workspace_inputs(lines: list[str]) -> tuple[list[str], list[str]]:
 
 
 def save_workspace_roots(lines: list[str]) -> tuple[bool, str]:
-    """把工作区域写回 config/agent.yml，并立即生效。"""
+    """把工作区域写回 config/agent.yml，并立即生效。
+
+    只替换 `workspace_roots` 一个块：注释、空行和其它配置
+    （如 sensitive_dirs）原样保留，避免“改工作区顺手重写整份配置”。
+    """
     valid, errors = validate_workspace_inputs(lines)
     if errors:
         return False, "；".join(errors)
 
-    config = _read_config()
-    config["workspace_roots"] = valid
+    from agent.guard.config import update_agent_config_block
 
     try:
-        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = _CONFIG_PATH.with_suffix(".yml.tmp")
-        with open(temp_path, "w", encoding="utf-8") as stream:
-            yaml.safe_dump(config, stream, allow_unicode=True, sort_keys=False)
-        os.replace(temp_path, _CONFIG_PATH)
+        update_agent_config_block("workspace_roots", valid)
     except OSError as exc:
         return False, f"保存配置失败：{exc}"
 
@@ -602,6 +601,11 @@ def _describe_computer_use(action: str, args: dict) -> tuple[str, str]:
         )
     if action == "app_open":
         return "启动应用", f"打开「{args.get('name', '')}」。"
+    if action == "app_open_start_menu":
+        return (
+            "从开始菜单启动应用",
+            f"在 Windows 开始菜单里查找并打开「{args.get('name', '')}」的快捷方式或商店应用。",
+        )
     if action == "app_close":
         force = "（强制结束）" if args.get("force") else ""
         return "关闭应用", f"关闭「{args.get('name', '')}」{force}。"
@@ -624,6 +628,11 @@ def _computer_use_risk(action: str) -> str:
         return "会在真实屏幕上操作鼠标；坐标错误可能误点其他按钮或拖错窗口。"
     if action == "app_open":
         return "会启动本机程序。工具会拒绝终端、脚本宿主、注册表和磁盘工具。"
+    if action == "app_open_start_menu":
+        return (
+            "会先在开始菜单程序目录里按名字（含中英文别名）查找快捷方式，命中才启动；"
+            "没命中不会盲打启动命令。同样拒绝终端、脚本宿主等高风险程序。"
+        )
     if action == "app_close":
         return "会终止目标程序，未保存的数据可能丢失。系统关键进程会被拒绝关闭。"
     if action == "app_list":
@@ -642,7 +651,7 @@ def _computer_use_target(action: str, args: dict) -> str:
         return f"({args.get('x1')},{args.get('y1')}) -> ({args.get('x2')},{args.get('y2')})"
     if action in {"type_text", "clipboard_set"}:
         return _preview(args.get("text", ""), 80)
-    if action in {"app_open", "app_close"}:
+    if action in {"app_open", "app_open_start_menu", "app_close"}:
         return str(args.get("name", ""))
     if action == "locate_image":
         return str(args.get("image_path", ""))

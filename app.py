@@ -424,12 +424,113 @@ def _screenshot_label(path: str) -> str:
     return Path(path).name if path else "不指定"
 
 
+def _render_skill_form(last: dict, operations: list[dict], candidates: list[str]) -> None:
+    """渲染“保存/编辑技能”表单；同名保存会更新已有技能，不会堆重复。"""
+    editing_id = str(st.session_state.get("skill_editing_id") or "")
+    editing = skill_library.get_skill(editing_id) if editing_id else None
+    if editing_id and not editing:
+        # 要编辑的技能已被删除（或刷新后会话丢失），退回“保存最近任务”模式。
+        st.session_state.pop("skill_editing_id", None)
+        editing_id = ""
+
+    if editing:
+        default_name = str(editing.get("name") or "")
+        default_description = str(editing.get("description") or "")
+        default_steps = "\n".join(str(item) for item in editing.get("steps") or [])
+        known = list(dict.fromkeys([*candidates, *(editing.get("key_screenshots") or [])]))
+    elif operations:
+        default_name = str(last.get("prompt") or "最近任务").splitlines()[0][:40]
+        default_description = ""
+        default_steps = "\n".join(skill_library.steps_from_operations(operations))
+        known = list(candidates)
+    else:
+        return
+
+    st.markdown("**编辑技能**" if editing else "**保存最近一次任务为技能**")
+    name = st.text_input("技能名", value=default_name, key="skill_form_name")
+    description = st.text_input(
+        "适用场景（可选）",
+        value=default_description,
+        key="skill_form_description",
+        placeholder="例如：登录内部系统后导出报表",
+    )
+    steps = st.text_area(
+        "大概步骤（可编辑）",
+        value=default_steps,
+        height=140,
+        key="skill_form_steps",
+    )
+    default_keys = (
+        [item for item in (editing.get("key_screenshots") or []) if item in known]
+        if editing
+        else known[-1:] if known else []
+    )
+    key_screenshots = st.multiselect(
+        "关键截图（可选）",
+        options=known,
+        default=default_keys,
+        format_func=_screenshot_label,
+        help="只保存技能库副本；请确认截图里没有密码、验证码等敏感信息。",
+        key="skill_form_keys",
+    )
+    final_options = ["", *known]
+    default_final = (
+        max(
+            (index for index, item in enumerate(final_options) if item in (editing.get("final_screenshots") or [])),
+            default=0,
+        )
+        if editing
+        else (len(final_options) - 1 if known else 0)
+    )
+    final_screenshot = st.selectbox(
+        "最终成果截图（可选）",
+        options=final_options,
+        index=default_final,
+        format_func=_screenshot_label,
+        key="skill_form_final",
+    )
+    submit_label = "保存修改" if editing else "保存到技能库"
+    if not st.button(submit_label, type="primary", use_container_width=True, key="skill_form_submit"):
+        return
+    try:
+        saved = skill_library.save_skill(
+            name=name,
+            description=description,
+            steps=steps,
+            key_screenshots=key_screenshots,
+            final_screenshots=[final_screenshot] if final_screenshot else [],
+            task_card=(editing or {}).get("task_card") if editing else (last.get("card") or {}),
+            skill_id=editing_id,
+        )
+    except (OSError, ValueError) as exc:
+        st.error(f"保存技能失败：{exc}")
+        return
+    # 先清掉表单控件状态再 rerun，避免下一次打开表单残留上一个技能的名字/步骤；
+    # 保存提示写进闪现状态，rerun 后仍可见，不会出现“保存成功但界面没反应”。
+    verb = "已更新技能" if editing_id else "已保存技能"
+    st.session_state["skill_flash"] = f"{verb}：{saved.get('name', name)}"
+    for widget_key in (
+        "skill_form_name",
+        "skill_form_description",
+        "skill_form_steps",
+        "skill_form_keys",
+        "skill_form_final",
+        "skill_editing_id",
+    ):
+        st.session_state.pop(widget_key, None)
+    st.rerun()
+
+
 def _render_skill_library_section() -> None:
     """可选的任务技能库：保存步骤/截图，下次作为提示参考复用。"""
     with st.expander("任务技能库（可复用）", expanded=False):
+        flash = st.session_state.pop("skill_flash", "")
+        if flash:
+            st.success(flash)
         st.caption(
             "把做过的任务保存成技能：步骤是可编辑的人话摘要，截图会复制到技能库。"
             "复用只是给模型参考，仍要走当前任务卡、人工确认和 PIN。"
+            "同名保存视为更新这个技能。"
         )
 
         reference_id, _reference_steps = _reference_steps_from_state()
@@ -447,60 +548,12 @@ def _render_skill_library_section() -> None:
         if not candidates and operations:
             candidates = skill_library.screenshot_candidates(operations)
 
-        if operations:
-            st.markdown("**保存最近一次任务为技能**")
-            default_name = str(last.get("prompt") or "最近任务").splitlines()[0][:40]
-            form_nonce = uuid.uuid5(
-                uuid.NAMESPACE_DNS,
-                f"{last.get('prompt', '')}-{len(operations)}",
-            ).hex[:8]
-            with st.form(f"save_skill_form_{form_nonce}"):
-                name = st.text_input("技能名", value=default_name)
-                description = st.text_input(
-                    "适用场景（可选）",
-                    placeholder="例如：登录内部系统后导出报表",
-                )
-                steps = st.text_area(
-                    "大概步骤（可编辑）",
-                    value="\n".join(skill_library.steps_from_operations(operations)),
-                    height=140,
-                )
-                key_screenshots = st.multiselect(
-                    "关键截图（可选）",
-                    options=candidates,
-                    default=candidates[-1:] if candidates else [],
-                    format_func=_screenshot_label,
-                    help="只保存技能库副本；请确认截图里没有密码、验证码等敏感信息。",
-                )
-                final_options = ["", *candidates]
-                final_screenshot = st.selectbox(
-                    "最终成果截图（可选）",
-                    options=final_options,
-                    index=len(final_options) - 1 if candidates else 0,
-                    format_func=_screenshot_label,
-                )
-                save_skill = st.form_submit_button(
-                    "保存到技能库", type="primary", use_container_width=True
-                )
-            if save_skill:
-                try:
-                    saved = skill_library.save_skill(
-                        name=name,
-                        description=description,
-                        steps=steps,
-                        key_screenshots=key_screenshots,
-                        final_screenshots=[final_screenshot] if final_screenshot else [],
-                        task_card=last.get("card") or {},
-                    )
-                except (OSError, ValueError) as exc:
-                    st.error(f"保存技能失败：{exc}")
-                else:
-                    st.success(f"已保存技能：{saved.get('name', name)}")
-                    st.rerun()
-        else:
-            st.caption("完成一次任务后，这里会出现“保存为技能”的表单。")
-
         skills = skill_library.list_skills()
+        has_form = bool(skills) or bool(operations)
+        if not has_form:
+            st.caption("完成一次任务后，这里会出现“保存为技能”的表单。")
+            return
+        _render_skill_form(last, operations, candidates)
         if not skills:
             st.caption("技能库还是空的。")
             return
@@ -540,11 +593,22 @@ def _render_skill_library_section() -> None:
             "我确认删除这个技能",
             key=f"delete_skill_confirm_{selected_id}",
         )
-        cols = st.columns(2)
+        cols = st.columns(3)
         if cols[0].button("下次任务参考此技能", key=f"use_skill_{selected_id}", use_container_width=True):
             st.session_state["skill_reference_id"] = selected_id
             st.rerun()
-        if cols[1].button(
+        if cols[1].button("编辑此技能", key=f"edit_skill_{selected_id}", use_container_width=True):
+            st.session_state["skill_editing_id"] = selected_id
+            for widget_key in (
+                "skill_form_name",
+                "skill_form_description",
+                "skill_form_steps",
+                "skill_form_keys",
+                "skill_form_final",
+            ):
+                st.session_state.pop(widget_key, None)
+            st.rerun()
+        if cols[2].button(
             "删除技能",
             key=f"delete_skill_{selected_id}",
             disabled=not confirm_delete,
@@ -553,6 +617,8 @@ def _render_skill_library_section() -> None:
             if skill_library.delete_skill(selected_id):
                 if st.session_state.get("skill_reference_id") == selected_id:
                     st.session_state.pop("skill_reference_id", None)
+                if st.session_state.get("skill_editing_id") == selected_id:
+                    st.session_state.pop("skill_editing_id", None)
                 st.success("技能已删除。")
                 st.rerun()
 

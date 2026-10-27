@@ -91,7 +91,7 @@
 | 项目自身写保护 | ✅ 已接入 | `safety.guard_path(..., for_write=True)`：禁止 Agent 写 `agent/`、`config/`、`prompts/`、`scripts/`、`utils/`、`model/`、`memorys/`、`env_patch/`、`tests/`、`.venv/`、`.git/`、`logs/` 等 |
 | 任务预算与硬上限 | ✅ 已接入 | 任务卡预算（默认 30 步 / 10 分钟 / 2 元）+ `ToolCallLimitMiddleware` 100 步硬上限 |
 | 任务卡（目标/判据/机器判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；**默认按输入自动生成快速卡**，需要时再打开高级表单；机器判据可选 |
-| 任务技能库（步骤/截图复用） | ✅ 已接入 | `agent/skill_library.py` + 侧边栏「任务技能库」；保存人话步骤、关键截图、最终成果截图；复用只作提示，不自动执行 |
+| 任务技能库（步骤/截图复用） | ✅ 已接入 | `agent/skill_library.py` + 侧边栏「任务技能库」；保存人话步骤、关键截图、最终成果截图；**同名保存视为更新**，可随时「编辑此技能」改名/改步骤/换截图；复用只作提示，不自动执行 |
 | 任务结束机器判据 | ✅ 已接入 | `agent/guard/criteria.py` + `ReactAgent` 的 `verification` 事件；未通过/未确认/工具失败不能算完成；未配置判据按人工确认验收 |
 | 回滚边界说明 | ✅ 已接入 | `agent/guard/scope.py`；任务卡、确认卡片、文档都明确“命令/GUI/永久删除不可回滚” |
 | 只读总开关 | ✅ 已接入 | `config/agent.yml` 的 `read_only` + 侧边栏开关 + `agent/guard/policy.py` |
@@ -112,7 +112,7 @@
 | 天气 / 城市 / 用户 ID / 月份 | 🧪 模拟 | `agent/tools/agent_tools.py` 中返回随机或固定值 |
 | 会话记忆（短期 / 本地 JSON / PostgreSQL） | ✅ 已接入 | `app.py` 输入框左侧按钮切换；`memorys/memory_factory.py`、`file_checkpointer.py`、`postgres_checkpointer.py` |
 | 文件上传 UI | 🧪 预留 | `app_file_uploader.py` 当前为空壳 |
-| 桌面控制（截图 / 鼠标 / 键盘 / 剪贴板 / 应用） | ✅ 已接入（除只读动作外需确认） | `agent/tools/computer_use.py`（复用 OmniPilot 工具层） |
+| 桌面控制（截图 / 鼠标 / 键盘 / 剪贴板 / 应用） | ✅ 已接入（除只读动作外需确认） | `agent/tools/computer_use.py`（复用 OmniPilot 工具层）；Windows 下 `app_open` 打不开时回退 `app_open_start_menu` 从开始菜单按中英文名启动 |
 | 鉴权 / 多用户 / 限流 | ❌ 未实现 | — |
 
 ---
@@ -281,7 +281,7 @@ project2/
 │   │   └── middlewares.py      # ✅ 守卫层中间件（含 R2/R3 验签）
 │   └── tools/
 │       ├── os_tools.py         # ✅ 13 个电脑信息与文件操作工具
-│       ├── computer_use.py     # ✅ 1 个桌面控制工具（18 个动作，复用 OmniPilot）
+│       ├── computer_use.py     # ✅ 1 个桌面控制工具（19 个动作，复用 OmniPilot）
 │       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
 │       ├── verification.py     # ✅ 文件操作结果的后置校验
 │       ├── agent_tools.py      # ✅ 7 个业务工具
@@ -345,7 +345,7 @@ project2/
 | 想改什么 | 改哪里 |
 | --- | --- |
 | 换对话模型 | `config/model.yml` + `model/factory.py` |
-| 设置工作区域 | 输入框左侧「工作区域」按钮（立即生效），或 `config/agent.yml` 的 `workspace_roots`（重启生效） |
+| 设置工作区域 | 输入框左侧「工作区域」按钮（立即生效，只改 `workspace_roots` 一个块、保留注释与其它配置），或 `config/agent.yml` 的 `workspace_roots`（重启生效） |
 | 设置敏感目录 | `config/agent.yml` 的 `sensitive_dirs` |
 | 调整备份/回收区/命令黑名单 | `agent/tools/safety.py` |
 | 调整桌面控制的直接执行/确认范围 | `agent/tools/computer_use.py` 的 `READ_ONLY_ACTIONS`；确认策略在 `agent/react_agent.py` 的 `_HITL_CONFIG` |

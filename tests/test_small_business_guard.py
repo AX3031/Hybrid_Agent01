@@ -26,6 +26,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from agent.guard import approval, journal, policy
+from agent.guard import config as guard_config
 from agent.guard import state as guard_state
 from agent.guard import criteria, scope
 from agent.guard.lock import TaskBusyError, task_lock
@@ -804,6 +805,68 @@ class GuardMiddlewareOrderTest(GuardTestBase):
         self.assertTrue(messages)
         self.assertEqual(messages[-1].status, "success", messages[-1].content)
         guard_state.end_task()
+
+
+class AgentConfigBlockTest(unittest.TestCase):
+    """修改工作区域/只读开关时，不能重排整份 agent.yml。"""
+
+    SAMPLE = (
+        "external_data_path: data/external/records.csv\n"
+        "\n"
+        "# 电脑操作的工作区域注释。\n"
+        "workspace_roots:\n"
+        '  - "~"\n'
+        '  - "."\n'
+        "\n"
+        "# 只读总开关。\n"
+        "read_only: false\n"
+        "\n"
+        "# 敏感目录注释。\n"
+        "sensitive_dirs:\n"
+        '  - ".ssh"\n'
+        '  - ".aws"\n'
+    )
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="agent_cfg_")).resolve()
+        self.config_path = self.tmp / "agent.yml"
+        self.config_path.write_text(self.SAMPLE, encoding="utf-8")
+        self.patcher = mock.patch.object(
+            guard_config, "_CONFIG_PATH", self.config_path
+        )
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_update_block_preserves_comments_and_other_keys(self):
+        guard_config.update_agent_config_block(
+            "workspace_roots", ["C:\\Users\\me\\Desktop"]
+        )
+        text = self.config_path.read_text(encoding="utf-8")
+        # 注释与无关配置必须原样保留
+        self.assertIn("# 电脑操作的工作区域注释", text)
+        self.assertIn("# 只读总开关", text)
+        self.assertIn("# 敏感目录注释", text)
+        self.assertIn('  - ".ssh"', text)
+        self.assertIn('  - ".aws"', text)
+        self.assertIn("external_data_path: data/external/records.csv", text)
+        # 工作区域已更新，旧的 ~ / . 不再残留
+        self.assertIn("C:\\Users\\me\\Desktop", text)
+        self.assertNotIn('  - "~"', text)
+        reloaded = guard_config.read_agent_config()
+        self.assertEqual(reloaded["workspace_roots"], ["C:\\Users\\me\\Desktop"])
+        self.assertEqual(reloaded["sensitive_dirs"], [".ssh", ".aws"])
+        self.assertFalse(reloaded["read_only"])
+
+    def test_set_config_value_only_touches_target_key(self):
+        guard_config.set_config_value("read_only", True)
+        text = self.config_path.read_text(encoding="utf-8")
+        self.assertIn("# 电脑操作的工作区域注释", text)
+        self.assertIn('  - "~"', text)  # 工作区域不受影响
+        self.assertIn("read_only: true", text)
+        self.assertTrue(guard_config.read_agent_config()["read_only"])
 
 
 if __name__ == "__main__":

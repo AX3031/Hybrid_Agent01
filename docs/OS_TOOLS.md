@@ -180,7 +180,7 @@ workspace_roots:
 
 自定义任务卡里如果保留「发送/提交/付款」，所有 GUI 输入类动作会被保守拒绝（因为系统无法判断一次点击是否等于提交）；`run_command`/`open_path` 不在这条语义拦截内，仍需人工确认 + PIN。快速卡默认不包含这三个词。
 
-查看类也会被记录，只是不需要你点头。桌面控制是一个工具（`computer_use`）里的 18 个动作，确认粒度按动作而不是按工具。
+查看类也会被记录，只是不需要你点头。桌面控制是一个工具（`computer_use`）里的 19 个动作，确认粒度按动作而不是按工具。
 
 ---
 
@@ -502,7 +502,11 @@ workspace_roots:
 - "把 Chrome 关掉"
 - "现在有哪些程序在运行？"
 
-**动作：** `app_open` / `app_close` / `app_list`，都需要确认。
+**动作：** `app_open` / `app_open_start_menu` / `app_close` / `app_list`，都需要确认。
+
+**打开失败的 Windows 兜底：**
+
+被要求“打开某某软件”（如微信、QQ）时先用 `app_open`；若结果显示未检测到应用在运行、或用户说“打不开/没打开”，改用 `app_open_start_menu(name)`：它在 Windows 开始菜单程序目录与 `Get-StartApps` 商店应用里，按中文名与英文别名（微信↔WeChat、钉钉↔DingTalk 等）查找快捷方式并启动，未命中不盲打启动命令。成功打开后会提示可“保存为技能”，下次直接复用。
 
 **安全边界：**
 
@@ -836,7 +840,7 @@ text_not_contains|D:\输出\结果.txt|失败
 | 12 | `run_command` | `command`、`cwd`、`timeout` | `None`、`60` | **是** | 是（cwd + 命令内路径） |
 | 13 | `open_path` | `path` | — | **是** | 是（URL 除外） |
 
-桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)，一个工具 18 个动作。
+桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)，一个工具 19 个动作。
 
 | 动作 | 主要参数 | 确认 |
 | --- | --- | --- |
@@ -854,6 +858,7 @@ text_not_contains|D:\输出\结果.txt|失败
 | `hotkey` | `keys` | **是** |
 | `clipboard_get` / `clipboard_set` | `text`（写入时） | **是** |
 | `app_open` | `name`、`arguments` | **是** |
+| `app_open_start_menu` | `name` | **是** |
 | `app_close` | `name`、`force` | **是** |
 | `app_list` | `name_filter`、`limit` | **是** |
 
@@ -874,7 +879,9 @@ sensitive_dirs:
   - ".kube"
 ```
 
-解析逻辑在 `agent/tools/safety.py` 的 `_load_workspace_roots()`，模块导入时执行一次，所以修改后需要重启。
+解析逻辑在 `agent/tools/safety.py` 的 `_load_workspace_roots()`，模块导入时执行一次，所以直接改文件后需要重启；在界面「工作区域」弹层保存则立即生效。
+
+界面保存工作区域时走 `agent/guard/config.py` 的 `update_agent_config_block()`：只替换 `workspace_roots` 一个块，`config/agent.yml` 里的注释、空行和 `sensitive_dirs` 等其它配置逐行原样保留，不会再把整份配置重排。
 
 相对路径统一基于**项目根目录**解析，避免从不同目录启动应用时指向不同位置。路径比较使用 `os.path.realpath` + `os.path.normcase`，兼容 Windows 大小写与 8.3 短路径差异。
 

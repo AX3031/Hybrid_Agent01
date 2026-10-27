@@ -8,6 +8,10 @@
 
 ### Added
 
+- `agent/tools/computer_use.py`：新增第 19 个桌面动作 `app_open_start_menu(name)`——Windows 上 `app_open` 按友好名启动后拿不到真实成败，若用户反馈“打不开/没打开”，可显式改用此动作：按中英文名与别名（微信↔WeChat、QQ、钉钉↔DingTalk 等）在开始菜单程序目录与 `Get-StartApps` 商店应用里查找快捷方式并启动（未命中不盲打启动命令）；`app_open` 结果附一句中性引导提示模型改用此动作。`prompts/main_prompt.txt` 增加对应规则与“成功后提示保存为技能”引导。
+- `data/task_skills/skills.json`：新增种子技能“从开始菜单打开软件（兜底）”，把上述方法沉淀进技能库供复用。
+- `tests/test_computer_use_startmenu.py`：开始菜单名称变体、高危程序拦截、快捷方式查找（文件名优先、别名兼容）与人话描述用例。
+
 - `agent/skill_library.py` + `app.py`「任务技能库」：从最近任务生成脱敏步骤（省略输入文字原文、命令原文和 URL），复制关键截图/最终成果截图，保存技能并在下一次任务作为步骤参考；技能库在 `data/task_skills/`（git 忽略），Agent 不能写、`run_command` 不能引用。
 - `agent/guard/task_card.py` + `agent/react_agent.py`：新增 `TaskCard.from_prompt()` 快速卡、`reference_steps` 技能参考；机器判据改为可选，未配置时验证状态为 `not_required`，界面显示为“未配置（按人工确认）”。
 - `tests/test_skill_library.py`：技能库步骤脱敏、截图复制、保存/读取/删除、使用次数用例。
@@ -132,6 +136,10 @@
 
 ### Fixed
 
+- 修复“修改工作区域会重排整份 `config/agent.yml`”：`save_workspace_roots()` / `set_config_value()` 以前用 `yaml.safe_dump` 整份回写，会丢掉注释并把 `sensitive_dirs` 等无关配置一起重排；现在改为 `agent/guard/config.py` 的 `update_agent_config_block()` 定点替换目标键的块，其余行逐行原样保留。
+- 修复“技能库只能存一个、保存第二个没反应”：`save_skill()` 未传 `skill_id` 时以前总是新建，重复保存堆出一堆同名技能；现在按技能名对齐（同名视为更新），界面保存后改用跨 rerun 可见的闪现提示，不再出现“点了没反应”。
+- 修复“刷新页面后无法修改/删除已保存技能”：`app.py`「任务技能库」新增「编辑此技能」入口，可加载已保存技能改名/改步骤/换截图后回写，删除入口保留在选中技能上。
+
 - 修复“退出码非 0 被当成成功”：`run_command` 现在有确定性校验，非 0 标 `[结果校验未通过]`。
 - 修复工具挂起等待确认时 `Command` 对象可能被审计当成工具结果的问题；现在单独记 `status=interrupt`。
 - 修复 Windows 8.3 短路径（如 `ADMINI~1`）导致工作区比较误判的问题（`_norm` / `_is_under` 改用 `realpath`）。
@@ -166,6 +174,8 @@
 - 工作区域不允许设置为敏感目录（`.ssh`、`.aws` 等）。
 
 ### Security
+
+- 封堵“用中文/显示名启动高危程序”的绕过：`app_open` 黑名单原来只拦英文可执行文件名（cmd/powershell/regedit 等），`cmd /c start "Command Prompt"`、`命令提示符`、`注册表编辑器`、`磁盘管理` 等显示名能绕过直接拉起终端/注册表/磁盘工具；`_guard_app_open` 与开始菜单启动均新增中英文高危显示名精确拦截，`app_open_start_menu` 命中快捷方式后还会用 PowerShell 解析 `.lnk` 真实目标并重新过黑名单（fail closed，任一命中就拒启动）。
 
 - 第二主体审批：R2/R3 动作需要人工持有的 PIN；PIN 只存 PBKDF2 哈希，审批结果用 HMAC 凭证；PIN 不进入提示词、工作区、对话历史与审计。
 - 审批凭据目录默认放在 `%PROGRAMDATA%\OSGuiAgent\approval`（不可写时回退 `%LOCALAPPDATA%`），对 Agent 工具禁读写；命令中出现该路径直接拒绝。

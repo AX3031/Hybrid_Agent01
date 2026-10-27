@@ -110,7 +110,7 @@
 | 真实天气/定位/用户系统 | 工具返回模拟数据 |
 | GUI 级操作（键鼠/窗口/截图） | 已接入 `computer_use`（复用 OmniPilot 工具层）；没有控件树/OCR，靠截图 + 坐标/模板匹配 |
 | 文件上传 UI | `app_file_uploader.py` 为空壳 |
-| 自动化测试/CI | 已有 75 条离线用例和验证脚本，但还没有自动 CI 门禁 |
+| 自动化测试/CI | 已有 90 条离线用例和验证脚本，但还没有自动 CI 门禁 |
 
 > 结论：当前适合做原型验证和 LangChain Agent 二次开发脚手架，不应直接按生产系统对外承诺 SLA。
 
@@ -236,7 +236,7 @@ project2/
 │   │   └── middlewares.py       # ✅ 守卫层中间件（含 R2/R3 验签）
 │   └── tools/
 │       ├── os_tools.py          # ✅ 13 个电脑信息与文件操作工具
-│       ├── computer_use.py      # ✅ 1 个桌面控制工具（18 动作，复用 OmniPilot 工具层）
+│       ├── computer_use.py      # ✅ 1 个桌面控制工具（19 动作，复用 OmniPilot 工具层）
 │       ├── safety.py            # ✅ 工作区 / 项目写保护 / 命令拦截 / 后缀 / 备份 / 回收区 / 人话解释
 │       ├── verification.py      # ✅ 写/建目录/移动/复制/删除的后置校验
 │       ├── agent_tools.py       # ✅ 7 个业务工具 + 外部数据加载
@@ -286,7 +286,7 @@ project2/
 | `agent/guard/lock.py` | `task_lock`、`TaskBusyError` | 单任务文件锁、PID/时间过期清理 | 被 `ReactAgent` 使用 |
 | `agent/guard/approval.py` | `set_pin`、`verify_pin`、`sign_approval`、`verify_approval_token`、`is_protected_path` | PIN 哈希、HMAC 凭证、凭证验签与任务/批次/动作绑定、审批目录保护 | 被 `app.py`、`middlewares.py`、`safety.py`、设置脚本使用 |
 | `agent/guard/middlewares.py` | `guard_model`、`guard_preflight`、`guard_execute`、`track_model_usage` | 把预算/只读/任务卡/计步接进 ReAct 循环；`guard_execute` 对 R2/R3 验签审批凭证并校验任务/批次/动作绑定 | 被 `ReactAgent` 使用 |
-| `agent/tools/computer_use.py` | `computer_use`、`READ_ONLY_ACTIONS`、`action_requires_confirmation`、`_BLOCKED_APPS`、`_PROTECTED_PROCESSES` | 单工具 18 动作，分发到 OmniPilot 的 screenshot/screen_size/locate_image/wait/鼠标/键盘/剪贴板/应用工具；截图以 content block 回传，并在文本结果里附带本地截图路径供技能库选取；危险应用与系统进程拦截 | 上游：模型 tool_call；下游：OmniPilot 工具类、`safety.guard_path` |
+| `agent/tools/computer_use.py` | `computer_use`、`READ_ONLY_ACTIONS`、`action_requires_confirmation`、`_BLOCKED_APPS`、`_PROTECTED_PROCESSES`、`_launch_start_menu_app` | 单工具 19 动作，分发到 OmniPilot 的 screenshot/screen_size/locate_image/wait/鼠标/键盘/剪贴板/应用工具；截图以 content block 回传，并在文本结果里附带本地截图路径供技能库选取；`app_open` 后若未检测到目标进程会自动回退 `app_open_start_menu`（Windows 开始菜单/商店应用按中英文名与别名启动）；危险应用与系统进程拦截 | 上游：模型 tool_call；下游：OmniPilot 工具类、`safety.guard_path` |
 | `agent/tools/os_tools.py` | 13 个 `@tool` | 本机信息、文件读写、搜索、进程与命令执行；所有路径操作先过 `guard_path`；软删除、覆盖备份、后缀拦截 | 上游：模型 tool_call；下游：`safety.py`、OS / 文件系统 / subprocess |
 | `agent/tools/safety.py` | `guard_path`、`is_project_protected`、`is_sensitive`、`is_system_protected`、`check_command`、`check_write_suffix`、`check_tree_write_suffix`、`backup_before_overwrite`、`move_to_trash`、`describe_operation`、`sanitize_tool_args`、`sanitize_tool_result`、`summarize_content_for_log` | 工作区域、敏感目录、项目源码/配置/日志/虚拟环境/技能库写保护、命令黑名单、复制/移动目标与目录树后缀拦截、备份、回收区、审批目录保护、`realpath` 路径比较、日志脱敏与小白化解释 | 被 `os_tools.py`、`computer_use.py`、`middleware.py`、`app.py` 使用 |
 | `agent/tools/agent_tools.py` | `get_weather`、`get_user_location`、`get_user_id`、`get_current_month`、`fetch_external_data`、`fill_context_for_report`、`web_search_baidu` | 原有业务工具；CSV 懒加载缓存；百度联网搜索 | 上游：模型 tool_call；下游：CSV、百度 AI Search |
@@ -677,7 +677,7 @@ AIMessage("已清理 3 个临时文件...")
 | 单任务锁 | `.agent_state/task.lock` 互斥；PID/时间过期自动清理 | `guard/lock.py` |
 | 第二主体 | R2/R3 需 PIN；只存 PBKDF2 哈希；审批凭证 HMAC 签名；`guard_execute` 验签并绑定任务/批次/动作 | `guard/approval.py`、`guard/middlewares.py` |
 | 会话自愈 | 提交新消息前为上次中断的悬空 `tool_call` 补 `[未执行]` 占位结果 | `resilience.repair_thread_state` |
-| 桌面应用黑名单 | `app_open` 拒绝终端/脚本宿主/注册表/磁盘工具；`app_close` 拒绝系统关键进程 | `computer_use.py` |
+| 桌面应用黑名单 | `app_open` 拒绝终端/脚本宿主/注册表/磁盘工具；`app_close` 拒绝系统关键进程；`app_open` 打不开时回退 `app_open_start_menu`（Windows 开始菜单按中英文名启动） | `computer_use.py` |
 | 日志脱敏 | 截图 base64 不写日志；`type_text`/`clipboard_set` 的参数与 `clipboard_get` 的结果在审计日志中脱敏 | `safety.sanitize_tool_args` / `sanitize_tool_result` |
 
 ### 7.5 操作留痕
@@ -1061,7 +1061,7 @@ memorys/chat_history/
 | TD-14 | P2 | `yaml.FullLoader` 非最安全 | `config_handler.py` | 恶意 YAML 有风险（本地配置场景较低） | 改用 `yaml.safe_load` |
 | TD-15 | ✅ 已修复 | `md5.text` 非原子、无并发保护 | RAG 子系统已整体移除 | — | — |
 | TD-16 | ✅ 已修复 | 运行产物被 Git 跟踪 | 之前 `git ls-files` 含 `__pycache__`、`logs`、`memorys/chat_history`；现在已从索引移除并由 `.gitignore` 忽略 | 仓库不再膨胀 | 保持提交前检查 |
-| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（75 条 unittest 用例，其中 P0 守卫层 51 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
+| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（90 条 unittest 用例，其中 P0 守卫层 53 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
 | TD-18 | ✅ 已修复 | 模型/Embedding 维度无迁移机制 | 向量库已移除；当前无 embedding 依赖 | — | 如后续重新引入检索，需做集合版本管理 |
 | TD-19 | P2 | 外部数据缓存不失效 | `external_data` 模块级 dict 只填充一次 | 运行中 CSV 更新不生效 | 加 TTL/文件 mtime 检查 |
 | TD-20 | ✅ 已修复 | 逐字符 `time.sleep(0.01)` | 已改为按事件块渲染，不再逐字符 sleep | 长回答不再阻塞请求线程 | — |
@@ -1327,15 +1327,16 @@ tests/
 ├── fakes.py                    # ScriptedToolModel：假 ChatModel，支持 bind_tools
 ├── test_agent_resilience.py    # 异常→错误消息 / 重试分类 / 悬空调用修复
 ├── test_tool_verification.py   # 五类文件操作的后置校验
-├── test_small_business_guard.py # 任务卡/快速卡/可选机器判据/只读/批次回滚/预算急停/锁/PIN 验签/审计/项目写保护/后缀/GUI 语义
-├── test_skill_library.py       # 技能步骤脱敏/截图复制/保存读取删除
+├── test_small_business_guard.py # 任务卡/快速卡/可选机器判据/只读/批次回滚/预算急停/锁/PIN 验签/审计/项目写保护/后缀/GUI 语义/agent.yml 定点替换
+├── test_skill_library.py       # 技能步骤脱敏/截图复制/保存读取删除/同名去重更新
+├── test_computer_use_startmenu.py # 开始菜单兜底：名称变体/高危拦截/快捷方式查找/人话描述
 └── test_agent_tools.py         # 联网搜索失败语义 / 重试分类
 
 scripts/verify_agent_resilience.py   # 跑全部用例并输出证据 JSON
 scripts/verify_small_business.py     # 跑全部用例 + 统计 P0 守卫层用例 + 证据 JSON
 ```
 
-当前共 **75 条用例**（其中 P0 守卫层 51 条），全部通过。
+当前共 **90 条用例**（其中 P0 守卫层 53 条），全部通过。
 
 要点：
 

@@ -101,6 +101,46 @@ class SkillLibraryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             skill_library.save_skill(name="  ")
 
+    def test_edit_reuses_existing_screenshot_without_recopying(self):
+        """编辑技能时回传技能自己的截图绝对路径，不应再复制一份。"""
+        shot = self._make_screenshot("orig.png")
+        saved = skill_library.save_skill(
+            name="带图技能",
+            steps=["1. 打开"],
+            key_screenshots=[str(shot)],
+        )
+        # 技能库内已有一份副本
+        first_copy = Path(saved["key_screenshots"][0])
+        self.assertTrue(first_copy.is_file())
+        before = set((self.skill_dir / "screenshots" / saved["id"]).iterdir())
+
+        # 用绝对路径再保存一次（模拟“编辑此技能”），不应新增文件
+        updated = skill_library.save_skill(
+            name="带图技能",
+            skill_id=saved["id"],
+            steps=["1. 打开（改）"],
+            key_screenshots=[str(first_copy)],
+        )
+        after = set((self.skill_dir / "screenshots" / saved["id"]).iterdir())
+        self.assertEqual(before, after, "编辑不应重复复制截图")
+        self.assertEqual(
+            Path(updated["key_screenshots"][0]).name,
+            first_copy.name,
+        )
+
+    def test_same_name_save_updates_instead_of_duplicating(self):
+        """未传 skill_id 时同名保存应更新而不是新建，避免“只能存一个/重复堆叠”。"""
+        first = skill_library.save_skill(name="打开浏览器", steps=["1. 旧步骤"])
+        second = skill_library.save_skill(name="打开浏览器", steps=["1. 新步骤"])
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(len(skill_library.list_skills()), 1)
+        self.assertEqual(second["steps"], ["1. 新步骤"])
+
+        # 不同名仍新建
+        other = skill_library.save_skill(name="导出报表", steps=["1. 导出"])
+        self.assertNotEqual(other["id"], first["id"])
+        self.assertEqual(len(skill_library.list_skills()), 2)
+
     def test_mark_skill_used_increments_count(self):
         saved = skill_library.save_skill(name="打开计算器", steps=["1. 打开"])
         skill_library.mark_skill_used(saved["id"])

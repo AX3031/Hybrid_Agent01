@@ -1,0 +1,576 @@
+{
+  "time": "2026-10-27T21:06:55",
+  "git_commit": "574661c",
+  "python": "3.14.7",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "langchain": "1.4.0",
+  "langgraph": "1.2.11",
+  "guard_config": {
+    "read_only": false,
+    "task_defaults": {
+      "max_steps": 30,
+      "max_minutes": 10,
+      "max_cost_yuan": 2.0
+    },
+    "configured_keys": [
+      "external_data_path",
+      "model_prices",
+      "read_only",
+      "sensitive_dirs",
+      "task_defaults",
+      "workspace_roots"
+    ]
+  },
+  "summary": {
+    "total": 90,
+    "ok": 90,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "duration_s": 4.54,
+    "p0_total": 53,
+    "p0_ok": 53
+  },
+  "cases": [
+    {
+      "id": "tests.test_agent_resilience.DanglingToolCallRepairTest.test_noop_when_no_dangling_call",
+      "status": "ok",
+      "duration_s": 0.0186,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.DanglingToolCallRepairTest.test_unanswered_tool_call_is_detected_and_repaired",
+      "status": "ok",
+      "duration_s": 0.0165,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolErrorMiddlewareTest.test_exception_becomes_error_tool_message_and_loop_continues",
+      "status": "ok",
+      "duration_s": 0.0205,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_auth_error_not_retried",
+      "status": "ok",
+      "duration_s": 0.0146,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_side_effect_tool_not_retried",
+      "status": "ok",
+      "duration_s": 0.0154,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_transient_error_retried_then_success",
+      "status": "ok",
+      "duration_s": 1.1019,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.RetryClassificationTest.test_permanent_errors_are_not_retryable",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.RetryClassificationTest.test_transient_errors_are_retryable",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_http_error_is_not_swallowed",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_missing_api_key_raises_readable_error",
+      "status": "ok",
+      "duration_s": 0.0015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_no_result_returns_readable_note",
+      "status": "ok",
+      "duration_s": 0.0028,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.AppNameVariantsTest.test_chinese_name_expands_to_english_alias",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.AppNameVariantsTest.test_unknown_name_only_self",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.DescribeOperationTest.test_start_menu_action_has_readable_label",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.FindShortcutTest.test_alias_match_for_chinese_name",
+      "status": "ok",
+      "duration_s": 0.0027,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.FindShortcutTest.test_direct_name_match_wins",
+      "status": "ok",
+      "duration_s": 0.0015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.FindShortcutTest.test_missing_app_returns_none",
+      "status": "ok",
+      "duration_s": 0.0013,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_blocked_app_rejected_for_start_menu_action",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_common_words_not_overblocked",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_friendly_name_passes",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_localized_shell_names_blocked",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_shortcut_target_recheck_blocks_terminal",
+      "status": "ok",
+      "duration_s": 0.0006,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_edit_reuses_existing_screenshot_without_recopying",
+      "status": "ok",
+      "duration_s": 0.0078,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_empty_skill_name_is_rejected",
+      "status": "ok",
+      "duration_s": 0.002,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_mark_skill_used_increments_count",
+      "status": "ok",
+      "duration_s": 0.0036,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_same_name_save_updates_instead_of_duplicating",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_save_get_list_and_copy_screenshots",
+      "status": "ok",
+      "duration_s": 0.0097,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_steps_are_human_readable_and_do_not_keep_typed_secret",
+      "status": "ok",
+      "duration_s": 0.0019,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AgentConfigBlockTest.test_set_config_value_only_touches_target_key",
+      "status": "ok",
+      "duration_s": 0.0022,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AgentConfigBlockTest.test_update_block_preserves_comments_and_other_keys",
+      "status": "ok",
+      "duration_s": 0.0026,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_audit_record_contains_batch_and_approver_fields",
+      "status": "ok",
+      "duration_s": 0.0078,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_command_exit_code_is_checked",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_copy_content_mismatch_is_flagged",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_desktop_action_is_marked_unconfirmed",
+      "status": "ok",
+      "duration_s": 0.0045,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BatchRollbackTest.test_append_rollback_truncates_to_previous_size",
+      "status": "ok",
+      "duration_s": 0.0199,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BatchRollbackTest.test_permanent_delete_is_reported_as_irreversible",
+      "status": "ok",
+      "duration_s": 0.0175,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BatchRollbackTest.test_whole_batch_rollback_restores_files",
+      "status": "ok",
+      "duration_s": 0.04,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BudgetAndStopTest.test_emergency_stop_blocks_and_can_be_cleared",
+      "status": "ok",
+      "duration_s": 0.0054,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BudgetAndStopTest.test_step_limit_blocks_next_tool",
+      "status": "ok",
+      "duration_s": 0.0154,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BudgetAndStopTest.test_task_stopped_cannot_start_until_cleared",
+      "status": "ok",
+      "duration_s": 0.0077,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.CopyMoveSuffixTest.test_copy_to_executable_suffix_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0082,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.CopyMoveSuffixTest.test_directory_copy_with_executable_inside_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0087,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.CopyMoveSuffixTest.test_move_to_executable_suffix_is_rejected",
+      "status": "ok",
+      "duration_s": 0.009,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_budget_stop_short_circuits_without_calling_model",
+      "status": "ok",
+      "duration_s": 0.0225,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_dummy_token_is_rejected_not_just_checked_for_presence",
+      "status": "ok",
+      "duration_s": 0.0357,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_r2_action_without_pin_token_is_rejected",
+      "status": "ok",
+      "duration_s": 0.034,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_rejected_action_does_not_consume_step",
+      "status": "ok",
+      "duration_s": 0.0284,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_step_is_consumed_only_after_approval",
+      "status": "ok",
+      "duration_s": 0.0375,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_valid_bound_token_is_accepted",
+      "status": "ok",
+      "duration_s": 0.0443,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuiSemanticForbiddenTest.test_gui_mutation_is_blocked_when_card_forbids_send_or_pay",
+      "status": "ok",
+      "duration_s": 0.004,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuiSemanticForbiddenTest.test_gui_mutation_passes_when_semantic_forbidden_is_removed",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ProjectProtectionTest.test_command_cannot_touch_project_protected_paths",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ProjectProtectionTest.test_project_protected_path_cannot_be_written",
+      "status": "ok",
+      "duration_s": 0.0077,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ProjectProtectionTest.test_project_protected_paths_are_recognized",
+      "status": "ok",
+      "duration_s": 0.0065,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ReadOnlyModeTest.test_command_and_desktop_input_are_blocked",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ReadOnlyModeTest.test_write_is_blocked_and_read_still_works",
+      "status": "ok",
+      "duration_s": 0.0074,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_approval_dir_is_blocked_for_agent_tools",
+      "status": "ok",
+      "duration_s": 0.151,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_approval_token_is_bound_to_thread_batch_and_actions",
+      "status": "ok",
+      "duration_s": 0.1546,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_approval_token_is_signed_and_verifiable",
+      "status": "ok",
+      "duration_s": 0.1539,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_pin_hash_never_contains_plaintext",
+      "status": "ok",
+      "duration_s": 0.4516,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_weak_pin_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0042,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SingleTaskLockTest.test_second_task_is_rejected_then_allowed_after_release",
+      "status": "ok",
+      "duration_s": 0.0053,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_machine_check_failure_is_not_completion",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_machine_check_invalid_path_is_rejected_by_card",
+      "status": "ok",
+      "duration_s": 0.0054,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_machine_checks_pass_with_deterministic_evidence",
+      "status": "ok",
+      "duration_s": 0.0078,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_quick_card_can_carry_skill_steps",
+      "status": "ok",
+      "duration_s": 0.0057,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_quick_card_needs_no_form_and_keeps_gui_actions",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_quick_task_without_machine_checks_can_finish",
+      "status": "ok",
+      "duration_s": 0.0172,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_readonly_card_can_omit_machine_check",
+      "status": "ok",
+      "duration_s": 0.005,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_rollback_boundary_is_explicit",
+      "status": "ok",
+      "duration_s": 0.0038,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_task_card_prompt_contains_machine_checks_and_boundary",
+      "status": "ok",
+      "duration_s": 0.0044,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_verification_failure_marks_task_not_finished",
+      "status": "ok",
+      "duration_s": 0.0128,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_write_card_can_omit_machine_check",
+      "status": "ok",
+      "duration_s": 0.0049,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_action_not_allowed_is_rejected",
+      "status": "ok",
+      "duration_s": 0.004,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_output_outside_workspace_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0054,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_side_effect_without_task_card_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0045,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_validation_requires_success_criteria_and_allowed_action",
+      "status": "ok",
+      "duration_s": 0.0051,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_write_inside_output_location_passes",
+      "status": "ok",
+      "duration_s": 0.0047,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_write_outside_output_location_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0058,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardRequiredTest.test_new_task_without_card_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardRequiredTest.test_quick_card_can_start_a_task",
+      "status": "ok",
+      "duration_s": 0.0121,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_append_is_verified_against_tail",
+      "status": "ok",
+      "duration_s": 0.013,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_claimed_write_without_file_is_flagged",
+      "status": "ok",
+      "duration_s": 0.0027,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_enrich_keeps_untouched_when_not_applicable",
+      "status": "ok",
+      "duration_s": 0.002,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_enrich_marks_failed_verification_as_error",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_failed_tool_result_is_not_reverified",
+      "status": "ok",
+      "duration_s": 0.0019,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_delete_is_verified",
+      "status": "ok",
+      "duration_s": 0.0095,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_move_is_verified",
+      "status": "ok",
+      "duration_s": 0.012,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_write_is_verified",
+      "status": "ok",
+      "duration_s": 0.0084,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_unknown_tool_is_skipped",
+      "status": "ok",
+      "duration_s": 0.0016,
+      "detail": ""
+    }
+  ]
+}

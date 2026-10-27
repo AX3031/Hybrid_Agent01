@@ -27,6 +27,8 @@
 - 不要把技能库当成自动工作流：它只保存脱敏步骤/截图作为提示，不会自动执行，也不能替代当前任务卡、人工确认和 PIN。技能截图可能含隐私且本地未加密，保存前要提示用户确认。
 - 不要把 `.agent_state/` 当源码或文档提交：它是运行时状态（批次/会话快照/锁/STOP），已在 `.gitignore`；测试要用 `AGENT_STATE_DIR` / `AGENT_APPROVAL_DIR` 指到临时目录，避免污染项目状态。
 - 不要把审批口令（PIN）写进 `.env`、提示词、文档、聊天记录或 Git；只能用 `scripts/setup_approval_pin.py` 写入本机审批目录（只存哈希）。
+- 不要把 `config/agent.yml` 整份 `yaml.safe_dump` 回写：那会丢注释、空行并重排 `sensitive_dirs` 等无关配置。单项修改（工作区域、只读开关等）必须用 `agent/guard/config.py` 的 `update_agent_config_block()` 定点替换目标键的块。
+- 不要只按英文可执行文件名拦截“启动程序”：`app_open`/`app_open_start_menu` 必须同时拦中英文显示名（命令提示符/Command Prompt、注册表编辑器/Registry Editor 等），并在启动开始菜单命中的 `.lnk` 前解析其真实目标重新过黑名单，否则本地化名会绕过终端/注册表/磁盘工具禁令。
 
 ## 修改后的文档动作
 
@@ -38,8 +40,8 @@
 - 改任务卡快速卡/技能库 → `agent/guard/task_card.py`、`agent/skill_library.py`、`app.py`、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`docs/small-business-p0/10-任务卡简化与技能库.md`、README/OS_TOOLS/ARCHITECTURE/CHANGELOG。
 - 新增/修改测试用例或验证脚本 → `tests/`、`scripts/verify_agent_resilience.py`、`scripts/verify_small_business.py`、`docs/agent-resilience/02-验证与交付复盘.md`（用例数与结论要同步）、`docs/small-business-p0/08-交付复盘与验收清单.md`（P0 用例数与证据）、`ARCHITECTURE.md` 13.10、`README.md` 能力表。
 - 改工具失败/重试/结果校验/会话自愈 → `agent/resilience.py`、`agent/tools/verification.py`、`agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` / `_should_retry_tool_error`、`ARCHITECTURE.md` 6.5/11.3/12、`docs/agent-resilience/01`，并补对应用例。
-- 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`docs/OS_TOOLS.md`、`README.md` 能力表、`architecture.svg` 工具层。
-- 改安全策略/工作区域 → `ARCHITECTURE.md` 7.2/7.4、`docs/OS_TOOLS.md` 2/8/11.2/11.3、`README.md` 配置速查；界面入口在 `app.py` 的「工作区域」弹层。
+- 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`docs/OS_TOOLS.md`、`README.md` 能力表、`architecture.svg` 工具层；动作增删改 `agent/tools/computer_use.py` 的 `_ACTION_PARAMS`/`_REQUIRED_PARAMS`/工具描述与 `agent/tools/safety.py` 的 `describe_operation`/`operation_risk`/`operation_target`。
+- 改安全策略/工作区域 → `ARCHITECTURE.md` 7.2/7.4、`docs/OS_TOOLS.md` 2/8/11.2/11.3、`README.md` 配置速查；界面入口在 `app.py` 的「工作区域」弹层，保存回写在 `agent/guard/config.py`（`update_agent_config_block`）+ `agent/tools/safety.py`（`save_workspace_roots`）。
 - 改守卫层（任务卡/只读/批次/预算/急停/锁/PIN/机器判据/回滚边界/技能库）→ `agent/guard/`、`agent/skill_library.py`、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`scripts/verify_small_business.py`、`ARCHITECTURE.md` 4.1/5.2/6/7/8/9/11/12/13.10/14/16.3、`docs/small-business-p0/00–10`、`README.md`、`PROJECT_OVERVIEW.md`、`architecture.svg` 守卫层。
 - 改项目写保护/审批验签/复制移动后缀/GUI 语义禁令/机器判据/技能库数据目录 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/guard/approval.py`、`agent/guard/middlewares.py`、`agent/guard/criteria.py`、`agent/guard/scope.py`、`agent/guard/task_card.py`、`agent/react_agent.py`、`agent/skill_library.py`、`docs/small-business-p0/09-安全边界与机器判据.md`、`docs/small-business-p0/10-任务卡简化与技能库.md`、`docs/SECURITY_REPORT_2026-10-27.md`、`README.md`、`OS_TOOLS.md`、`ARCHITECTURE.md`，并补对应用例。
 - 实现秘密文件读取/敏感读取审批 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/react_agent.py` 的 HITL 配置、`agent/guard/approval.py`/`policy.py`、`tests/`、`docs/SECURITY_REPORT_2026-10-27.md`、`docs/small-business-p0/09–10`、README/OS_TOOLS/ARCHITECTURE/AGENTS；实现前不要把计划写成已完成。
