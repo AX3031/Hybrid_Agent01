@@ -26,11 +26,13 @@ from agent.tools.middleware import (
     tool_error_middleware, tool_retry_middleware,
 )
 from agent.guard import state as guard_state
+from agent.guard import criteria
 from agent.guard.lock import task_lock
 from agent.guard.middlewares import (
     guard_execute, guard_model, guard_preflight, track_model_usage,
 )
 from agent.resilience import repair_thread_state
+from utils import audit_logger
 from utils.logger_handler import logger
 
 # 会读取敏感信息或修改电脑状态的工具，调用前必须由用户确认
@@ -79,6 +81,7 @@ class AgentEvent:
     - type="text"：模型输出的一段文本，content 为内容
     - type="interrupt"：有危险操作等待确认，action_requests 为待确认的工具调用
     - type="tool"：一个工具调用已返回结果，tool_call 包含名称、参数、结果、状态
+    - type="verification"：任务结束时的机器判据报告；未通过/未确认不能算完成
     """
 
     type: str
@@ -162,6 +165,9 @@ class ReactAgent:
                     ]
                 }
                 yield from self._stream(input_dict, config)
+                verification = self._verification_event()
+                if verification:
+                    yield verification
         finally:
             if started:
                 guard_state.end_task("finished")
@@ -195,9 +201,48 @@ class ReactAgent:
                     Command(resume={"decisions": decisions}),
                     self._build_config(thread_id),
                 )
+                verification = self._verification_event()
+                if verification:
+                    yield verification
         finally:
             if started:
                 guard_state.end_task("finished")
+
+    @staticmethod
+    def _verification_event():
+        """任务结束时核对机器判据；等待下一次确认时不核对。"""
+        task = guard_state.current()
+        if task is None:
+            return AgentEvent(type="verification", content="未找到当前任务状态，无法核对机器判据。")
+        if task.status == "awaiting_approval":
+            return None
+        card = guard_state.current_card()
+        if card is None:
+            return AgentEvent(type="verification", content="未使用任务卡，无法核对机器判据。")
+        report = criteria.criteria_report(card.machine_checks)
+        if task.tool_errors:
+            report = {
+                **report,
+                "status": "failed",
+                "text": (
+                    f"任务中有 {task.tool_errors} 次工具调用失败/被拒绝，不能算完成。\n"
+                    f"{report['text']}"
+                ),
+            }
+        guard_state.mark_verification(str(report["status"]))
+        audit_logger.log_guard_event(
+            "task_verification",
+            task_id=task.task_id,
+            batch_id=task.batch_id,
+            status=report["status"],
+            checks=report["checks"],
+        )
+        return AgentEvent(
+            type="verification",
+            content=f"状态：{report['status']}\n{report['text']}",
+            batch_id=task.batch_id,
+            task_card=card.to_dict(),
+        )
 
     def _repair_pending_tool_calls(self, config: dict) -> None:
         """补齐上一次中断遗留的悬空工具调用；失败不影响本轮请求。"""
@@ -316,11 +361,27 @@ class ReactAgent:
 
 if __name__ == '__main__':
     agent = ReactAgent()
+    readonly_card = {
+        "name": "只读查看",
+        "user": "local",
+        "goal": "查看这台电脑的系统信息",
+        "success_criteria": ["列出系统信息"],
+        "allowed_actions": ["读"],
+        "max_steps": 5,
+        "max_minutes": 5,
+        "max_cost_yuan": 1.0,
+    }
 
-    for event in agent.execute_stream("看一下这台电脑的系统信息", thread_id="local_test"):
+    for event in agent.execute_stream(
+        "看一下这台电脑的系统信息",
+        thread_id="local_test",
+        task_card=readonly_card,
+    ):
         if event.type == "text":
             print(event.content, end="", flush=True)
         elif event.type == "tool":
             print(f"\n[操作] {event.tool_call}")
+        elif event.type == "verification":
+            print(f"\n[机器判据] {event.content}")
         else:
             print(f"\n[待确认操作] {event.action_requests}")

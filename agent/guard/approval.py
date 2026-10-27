@@ -249,8 +249,19 @@ def sign_approval(thread_id: str, batch_id: str, actions: list[dict]) -> str:
     return token
 
 
-def verify_approval_token(token: str, max_age_seconds: int = 600) -> bool:
-    """校验审批凭证是否由本机签发、是否过期；用于回放与测试。"""
+def verify_approval_token(
+    token: str,
+    max_age_seconds: int = 600,
+    *,
+    thread_id: str = "",
+    batch_id: str = "",
+    actions: list[dict] | None = None,
+) -> bool:
+    """校验审批凭证是否由本机签发、是否过期、是否绑定到指定任务/批次/动作。
+
+    只校验 token 存在不够：同一个进程里任何代码都可以传入一个非空字符串。
+    执行侧必须同时校验签名、有效期，以及 thread_id / batch_id / actions 摘要。
+    """
     if not token:
         return False
     try:
@@ -258,6 +269,7 @@ def verify_approval_token(token: str, max_age_seconds: int = 600) -> bool:
         lines = _log_path().read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return False
+    expected_actions = _actions_digest(actions) if actions is not None else None
     for line in reversed(lines[-500:]):
         try:
             record = json.loads(line)
@@ -267,7 +279,16 @@ def verify_approval_token(token: str, max_age_seconds: int = 600) -> bool:
             continue
         if time.time() - int(record.get("ts") or 0) > max_age_seconds:
             return False
-        payload = {key_name: record.get(key_name) for key_name in ("thread_id", "batch_id", "actions", "ts", "nonce")}
+        if thread_id and str(record.get("thread_id") or "") != thread_id:
+            return False
+        if batch_id and str(record.get("batch_id") or "") != batch_id:
+            return False
+        if expected_actions is not None and record.get("actions") != expected_actions:
+            return False
+        payload = {
+            key_name: record.get(key_name)
+            for key_name in ("thread_id", "batch_id", "actions", "ts", "nonce")
+        }
         expected = hmac.new(key, _canonical(payload), hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, token)
     return False

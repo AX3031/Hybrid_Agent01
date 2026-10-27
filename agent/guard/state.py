@@ -57,6 +57,8 @@ class TaskRuntime:
     cost_yuan: float = 0.0
     stop_reason: str = ""
     status: str = "running"
+    tool_errors: int = 0
+    verification_status: str = ""
     saved_at: float = field(default_factory=time.time)
 
     def to_snapshot(self) -> dict:
@@ -81,6 +83,8 @@ class TaskRuntime:
             cost_yuan=float(data.get("cost_yuan") or 0.0),
             stop_reason=str(data.get("stop_reason") or ""),
             status=str(data.get("status") or "running"),
+            tool_errors=int(data.get("tool_errors") or 0),
+            verification_status=str(data.get("verification_status") or ""),
             saved_at=float(data.get("saved_at") or time.time()),
         )
 
@@ -156,6 +160,11 @@ def start_task(
     global _CURRENT
 
     card_dict = _card_to_dict(card)
+    if not card_dict and not resume:
+        raise ValueError(
+            "每个新任务都必须启用任务卡（任务名 / 目标 / 成功判据 / 允许范围 / 预算）；"
+            "只读任务也请在允许动作里选择「读」。"
+        )
     if card_dict:
         errors = TaskCard.from_dict(card_dict).validate()  # type: ignore[union-attr]
         if errors:
@@ -169,6 +178,8 @@ def start_task(
         if resume:
             task = _load_snapshot(thread_id)
             if task is None:
+                if not card_dict:
+                    raise ValueError("恢复任务失败：没有找到任务卡快照，请重新启用任务卡。")
                 task = _new_task(thread_id, card_dict, batch_id)
             else:
                 idle = max(0.0, time.time() - task.saved_at)
@@ -222,6 +233,8 @@ def end_task(status: str = "finished") -> None:
             return
         if _CURRENT.stop_reason and status == "finished":
             status = "stopped"
+        if status == "finished" and _CURRENT.status.startswith("verification_"):
+            status = _CURRENT.status
         if status == "finished" and _CURRENT.status in {"awaiting_approval", "stopping", "stopped"}:
             status = _CURRENT.status
         _CURRENT.status = status
@@ -236,6 +249,8 @@ def end_task(status: str = "finished") -> None:
                 "model_calls": _CURRENT.model_calls,
                 "cost_yuan": round(_CURRENT.cost_yuan, 4),
                 "stop_reason": _CURRENT.stop_reason,
+                "tool_errors": _CURRENT.tool_errors,
+                "verification_status": _CURRENT.verification_status,
             },
         )
         _CURRENT = None
@@ -363,6 +378,28 @@ def mark_stopped(reason: str) -> None:
         )
 
 
+def record_tool_status(status: str) -> None:
+    """记录一次工具最终状态；error 会让任务结束时不能判定“全部通过”。"""
+    if str(status).lower() != "error":
+        return
+    with _LOCK:
+        if _CURRENT is None:
+            return
+        _CURRENT.tool_errors += 1
+        _persist(_CURRENT)
+
+
+def mark_verification(status: str) -> None:
+    """记录任务结束时的机器判据结论；非 passed 时任务状态不再是 finished。"""
+    with _LOCK:
+        if _CURRENT is None:
+            return
+        _CURRENT.verification_status = str(status or "missing")
+        if _CURRENT.verification_status != "passed":
+            _CURRENT.status = f"verification_{_CURRENT.verification_status}"
+        _persist(_CURRENT)
+
+
 def consume_step() -> int:
     """工具真正执行前记一步；返回当前累计步数。"""
     with _LOCK:
@@ -393,18 +430,44 @@ def set_approval_context(
     token: str = "",
     approver: str = "human",
     actions: list[dict] | None = None,
+    *,
+    thread_id: str = "",
+    batch_id: str = "",
 ) -> None:
-    """审批通过后暂存签名凭证，供审计记录；不保存 PIN。"""
-    names = {str(item.get("name", "")) for item in (actions or []) if item.get("name")}
+    """审批通过后暂存签名凭证与绑定信息，供执行前验签；不保存 PIN。"""
+    normalized_actions = [
+        {
+            "name": str(item.get("name", "")),
+            "args": dict(item.get("args")) if isinstance(item.get("args"), dict) else {},
+        }
+        for item in (actions or [])
+        if isinstance(item, dict) and item.get("name")
+    ]
+    names = {item["name"] for item in normalized_actions}
     _APPROVAL.clear()
-    _APPROVAL.update({"token": token, "approver": approver, "names": names})
+    _APPROVAL.update(
+        {
+            "token": token,
+            "approver": approver,
+            "names": names,
+            "actions": normalized_actions,
+            "thread_id": thread_id,
+            "batch_id": batch_id,
+        }
+    )
 
 
 def approval_context(tool_name: str = "") -> dict:
     names = _APPROVAL.get("names")
     if names and tool_name and tool_name not in names:
         return {}
-    return {"token": _APPROVAL.get("token", ""), "approver": _APPROVAL.get("approver", "agent")}
+    return {
+        "token": _APPROVAL.get("token", ""),
+        "approver": _APPROVAL.get("approver", "agent"),
+        "actions": list(_APPROVAL.get("actions") or []),
+        "thread_id": _APPROVAL.get("thread_id", ""),
+        "batch_id": _APPROVAL.get("batch_id", ""),
+    }
 
 
 def clear_approval_context() -> None:
@@ -439,4 +502,5 @@ def active_summary() -> dict:
             "max_minutes": task.max_minutes,
             "status": task.status,
             "stop_reason": task.stop_reason,
+            "verification_status": task.verification_status,
         }

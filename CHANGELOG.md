@@ -16,10 +16,16 @@
 - `agent/guard/approval.py` + `scripts/setup_approval_pin.py`：第二主体审批口令，PBKDF2 只存哈希、HMAC 审批凭证、审批目录对 Agent 工具禁读写；R2/R3 动作在确认卡片上要求 PIN，未设置时 fail closed。
 - `agent/guard/policy.py`：只读总开关、任务卡动作/目录范围、可逆性 R0–R3、`requires_second_subject`、`requires_task_card`、`preflight_reason`；没有任务卡时拒绝会修改本机的工具。
 - `utils/audit_logger.py`：新增 `log_task_start` / `log_task_end` / `log_approval` / `log_guard_event`；`log_tool_call` 新增 `trace_id / task_id / batch_id / step_no / reversibility / approver / approval_token`。
-- `tests/test_small_business_guard.py`：新增 27 条 P0 守卫层用例（批次回滚、只读、任务卡、预算急停、锁、PIN、审计、退出码/复制哈希校验、中间件顺序、R2 无 PIN 凭证被拒）。
+- `tests/test_small_business_guard.py`：新增 47 条 P0 守卫层用例（批次回滚、只读、任务卡、机器判据、预算急停、锁、PIN 验签、审计、退出码/复制哈希校验、复制/移动后缀、项目写保护、GUI 语义禁令、中间件顺序、R2 无 PIN/假 token 被拒）。
 - `scripts/verify_small_business.py`：跑全部用例、单独统计 P0 用例并输出 `docs/small-business-p0/evidence/verify-*.json`。
-- `docs/SECURITY_REPORT_2026-10-27.md`：新增当前安全性评估：P0 守卫层后的真实控制、残余风险（`.env` 可读、项目源码/配置/日志可写、审批参数入审计、复制/移动后缀绕过、GUI 禁止项不生效、无出口白名单等）、P0 对照与加固顺序。
-- `docs/small-business-p0/00–08`：进度备忘录 + 七块能力的入门讲解 + 交付复盘与验收清单。
+- `agent/guard/criteria.py` + `agent/guard/scope.py` + `task_card.py`：任务卡新增 `machine_checks`，任务结束执行存在性/文件数/大小/SHA-256/文本包含等确定性判据；工具失败/被拒绝/判据未通过/未确认时不能算完成；明确回滚边界。
+- `app.py` + `task_card.py` + `state.py`：每个新任务必须启用任务卡；写入/命令/打开类必须有机器判据；任务卡表单增加机器判据与回滚说明；确认卡片显示回滚边界。
+- `agent/tools/safety.py` + `os_tools.py`：禁止 Agent 写项目源码/配置/提示词/脚本/`utils/`/`model/`/`memorys/`/`env_patch/`/`tests/`/`.venv/`/`.git/`/`logs/` 等；复制/移动目标与源目录树检查可执行后缀；`run_command` 拒绝引用项目受保护路径和 copy/move 到可执行后缀。
+- `agent/guard/approval.py` + `middlewares.py`：`guard_execute` 对 R2/R3 验签 HMAC，并绑定 thread/batch/actions；假 token、过期、错任务/批次/参数都会被拒。
+- `agent/guard/policy.py`：任务卡禁止发送/提交/付款时，保守拒绝所有 GUI 输入类动作。
+- `agent/react_agent.py` + `agent/tools/middleware.py`：新增 `verification` 事件、工具失败计数；任务结束执行机器判据并写审计。
+- `docs/small-business-p0/00–09`：进度备忘录 + 各阶段入门讲解 + 交付复盘与验收清单 + 本轮安全边界与机器判据。
+- `docs/SECURITY_REPORT_2026-10-27.md`：新增当前安全性评估（初始评估发现 `.env` 可读、项目源码/配置/日志写、审批参数入审计、复制/移动后缀、GUI 禁止项不生效、无出口白名单等）；后续修复状态见该文 4.13 与 `docs/small-business-p0/09`。
 
 - `agent/tools/middleware.py`：新增 `tool_error_middleware`（`ToolErrorMiddleware`）—— 工具抛异常时转成 `ToolMessage(status="error")`，内容以「工具 xxx 执行失败」开头，ReAct 循环不再被整轮打断；异常类型与一句话原因写日志，堆栈不发给模型。
 - `agent/tools/middleware.py`：新增 `tool_retry_middleware`（`ToolRetryMiddleware`）—— 只对 `RETRYABLE_TOOLS`（幂等/只读工具）重试 2 次，且只重试超时/断连/429/5xx；`on_failure="error"` 把最终失败交给错误中间件。写文件、删除、移动复制、命令、键鼠操作不自动重试。
@@ -63,6 +69,9 @@
 - 文档同步：`README.md` 4.2/4.2.1/4.5/5/7/10、`docs/ARCHITECTURE.md` 4.1/4.2/5.1/5.2/9.6/9.7/9.9/10.1/12（TD-23 转为已修复）/13.12、`docs/PROJECT_OVERVIEW.md` 第 6/7 节、`docs/architecture.svg` 横切层说明、`AGENTS.md`。
 
 ### Changed
+
+- 任务卡从“写操作前置”升级为“每个新任务必填”：只读任务也要选「读」并写成功判据；写入/命令/打开类必须有机器判据；`start_task()` 与界面双重拒绝无卡任务。
+- `tests/test_small_business_guard.py` 从 27 条扩到 47 条，全套从 47 条扩到 67 条；证据文件更新为 `docs/small-business-p0/evidence/verify-20261027-154810.json`。
 
 - 中间件列表新增 `guard_model`（模型前预算/急停短路）、`guard_preflight`（人工确认前只读/任务卡/预算检查）、`guard_execute`（确认后计步）、`track_model_usage`（token/费用记账）；顺序为 `model_fallback → guard_model → pii → tool_error → tool_retry → monitor_tool → guard_preflight → log_before_model → report_prompt_switch → hitl → guard_execute → tool_limit → track_model_usage`。
 - `ReactAgent.execute_stream` / `resume_stream`：新增任务卡参数、单任务锁、任务运行时启动/恢复/结束；`AgentEvent` 的 interrupt 事件新带 `batch_id` 与 `task_card` 快照。
@@ -122,7 +131,13 @@
 - 修复 Windows 8.3 短路径（如 `ADMINI~1`）导致工作区比较误判的问题（`_norm` / `_is_under` 改用 `realpath`）。
 - 修复 Agent 可写 `.agent_state` / `.agent_backup` / `.agent_trash` 的隐患；这些目录现在只允许读，禁止工具写入。
 - 修复 Agent 可能读取审批口令目录的隐患；`guard_path` 与 `check_command` 均拒绝该目录。
-- 修复文档中“结果校验只覆盖文件类工具”的过期描述（已补退出码与未确认标记）。
+- 修复 Agent 可写项目源码/配置/提示词/脚本/`utils/`/`model/`/`memorys/`/`env_patch/`/`tests/`/`.venv/`/`.git/`/`logs/` 的隐患；`guard_path(..., for_write=True)` 与 `check_command` 都拒绝。
+- 修复 R2/R3 审批只检查 token 非空、不验签的问题；`guard_execute` 现在验 HMAC、有效期并绑定 thread/batch/actions。
+- 修复复制/移动可把 `.txt` 变成 `.bat`/`.ps1` 的绕过：目标与源目录树都检查可执行后缀。
+- 修复任务卡“禁止发送/付款”不拦 GUI 的问题：命中语义词时保守拒绝所有 GUI 输入类动作。
+- 修复任务卡成功判据只靠模型自述的问题：新增机器判据，任务结束由代码执行；工具失败/被拒绝时不能算完成。
+- 修复新任务无任务卡仍可只读运行的问题：每个新任务必须启用任务卡；写入/命令/打开类必须有机器判据。
+- 修复文档中“只读问答不需要任务卡”“47/27 用例”等过期描述。
 
 - 工具抛异常不再打断整轮：异常先由重试中间件判断，重试耗尽后转成 `status=error` 的 `ToolMessage`，模型能继续换参数/换工具/如实说明（此前异常一路冒泡，`app.py` 只显示“生成回答失败”）。
 - 修复中断后会话被污染：工具崩溃时 checkpoint 会留下没有 `ToolMessage` 的 `tool_calls`、`next` 停在 `tools`，下一次提问把脏历史发给模型；现在提交新消息前自动补占位结果。
@@ -150,6 +165,10 @@
 - 审批凭据目录默认放在 `%PROGRAMDATA%\OSGuiAgent\approval`（不可写时回退 `%LOCALAPPDATA%`），对 Agent 工具禁读写；命令中出现该路径直接拒绝。
 - 任务卡范围与只读开关均在代码层强制执行，不依赖提示词；越界调用返回 `status=error` 的 ToolMessage。
 - 批次日志与任务快照放在 `.agent_state/`，对 Agent 工具禁写；回滚冲突不覆盖现有文件，永久删除明确报“不可逆”。
+- 项目自身写保护：Agent 工具不能写源码、配置、提示词、脚本、日志、虚拟环境、Git 元数据；复制/移动的可执行后缀与目录树也拦截。
+- 审批凭证执行侧验签：假 token、过期、错任务/批次/参数均拒绝；PIN 仍不进入提示词/工作区/对话历史。
+- GUI 语义禁令：任务卡禁止发送/提交/付款时，GUI 输入类动作保守拒绝；`run_command`/`open_path` 仍靠人工确认 + PIN。
+- 任务结束机器判据：文件存在/不存在、文件数、大小、SHA-256、文本包含/排除由代码核对；未通过/未确认/工具失败不能算完成。
 - 急停使用 `STATE_DIR/STOP` 文件，独立于模型；预算超限在模型调用前短路。
 
 - `agent/tools/computer_use.py`：`app_open` 拒绝终端/脚本宿主/注册表/磁盘/策略工具（cmd、PowerShell、Windows Terminal、WSL、cscript、mshta、regedit、diskpart、bcdedit 等），并拒绝应用名与启动参数中的 cmd 元字符（`&`、竖线、重定向、`^`、`%`、括号、引号、分号），阻断“打开终端再敲命令”绕过 `run_command` 黑名单的链路。

@@ -87,6 +87,7 @@ def monitor_tool(
 
         content = getattr(result, "content", result)
         status = getattr(result, "status", "success") or "success"
+        guard_state.record_tool_status(str(status))
         log_tool_call(
             session_id,
             tool_name,
@@ -102,6 +103,7 @@ def monitor_tool(
         )
         return result
     except Exception as e:
+        guard_state.record_tool_status("error")
         log_tool_call(
             session_id,
             tool_name,

@@ -10,6 +10,7 @@ from agent.guard import state as guard_state
 from agent.guard.config import read_only_enabled, set_read_only, task_defaults
 from agent.guard.lock import TaskBusyError
 from agent.guard.policy import requires_second_subject, reversibility_of
+from agent.guard.scope import ROLLBACK_BOUNDARY_TEXT, rollback_note
 from agent.guard.task_card import ALL_ACTIONS, DEFAULT_FORBIDDEN, TaskCard
 from agent.tools.safety import (
     describe_operation,
@@ -84,6 +85,9 @@ def _render_events(event_stream: Iterator[AgentEvent]) -> tuple[str, list[dict]]
             }
         elif event.type == "tool" and event.tool_call:
             operations.append(event.tool_call)
+        elif event.type == "verification" and event.content:
+            buffer += f"\n\n【机器判据】\n{event.content}\n"
+            placeholder.markdown(buffer)
 
     if not buffer:
         placeholder.empty()
@@ -152,6 +156,7 @@ def _render_hitl_block(agent: ReactAgent) -> None:
                     pass
 
             st.caption(f"需要注意：{risk}")
+            st.caption(f"回滚边界：{rollback_note(name, args)}")
 
         if needs_pin:
             if approval.pin_configured():
@@ -193,7 +198,13 @@ def _render_hitl_block(agent: ReactAgent) -> None:
             except OSError as exc:
                 st.error(f"生成审批凭证失败：{exc}")
                 return
-            guard_state.set_approval_context(token, "human", actions)
+            guard_state.set_approval_context(
+                token,
+                "human",
+                actions,
+                thread_id=session_id,
+                batch_id=batch_id,
+            )
         audit_logger.log_approval(
             session_id, batch_id, "approve", actions, token=token, approver="human"
         )
@@ -241,14 +252,22 @@ def _render_task_card_section() -> None:
     defaults = task_defaults()
     active = TaskCard.from_dict(st.session_state.get("task_card"))
 
-    with st.expander("任务卡（建议每次任务都填写）", expanded=bool(active)):
+    with st.expander("任务卡（必须填写）", expanded=bool(active)):
         st.caption(
-            "任务卡把目标、成功判据、允许范围、预算写进系统提示词和审计。"
-            "缺目标/成功判据无法启用；启用后做完请清除。"
+            "每个任务都必须有任务卡；缺目标/成功判据/机器判据（写入类）无法启用。"
+            "任务结束会由代码核对机器判据，未通过/未确认不能算完成。"
+        )
+        st.caption(
+            "如果禁止动作里保留「发送/提交/付款」，所有 GUI 输入类动作都会被保守拒绝；"
+            "系统无法判断一次点击是否等于提交。run_command/open_path 不在此语义拦截内，仍需人工确认 + PIN。"
         )
         if active:
             st.success(active.summary_text())
             st.caption("成功判据：" + "；".join(active.success_criteria))
+            st.caption(
+                "机器判据：" + ("；".join(active.machine_checks) if active.machine_checks else "未配置（只能标未确认）")
+            )
+            st.caption(f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}")
             if st.button("清除任务卡", key="clear_task_card", use_container_width=True):
                 st.session_state.pop("task_card", None)
                 st.rerun()
@@ -261,10 +280,20 @@ def _render_task_card_section() -> None:
                 placeholder="例如：把下载目录里的发票按 年月_金额_供应商 改名并归档",
             )
             criteria = st.text_area(
-                "成功判据（每行一条，必须机器可判定）",
+                "成功判据（人话；每行一条）",
                 value="\n".join(active.success_criteria) if active else "",
                 height=100,
                 placeholder="例如：归档目录文件数 = 源目录文件数\n无重名文件",
+            )
+            machine_checks = st.text_area(
+                "机器判据（写入/命令/打开类必填；每行一条）",
+                value="\n".join(active.machine_checks) if active else "",
+                height=100,
+                placeholder=(
+                    "exists|D:\\输出\\结果.xlsx\n"
+                    "file_count|D:\\输出|3\n"
+                    "sha256|D:\\输出\\结果.xlsx|64位十六进制"
+                ),
             )
             input_scope = st.text_area(
                 "输入范围（每行一个目录；留空 = 工作区只读范围）",
@@ -278,7 +307,8 @@ def _render_task_card_section() -> None:
             allowed = st.multiselect(
                 "允许的动作",
                 ALL_ACTIONS,
-                default=active.allowed_actions if active and active.allowed_actions else ALL_ACTIONS,
+                default=active.allowed_actions if active and active.allowed_actions else [ALL_ACTIONS[0]],
+                help="默认只允许「读」；需要写入/命令/桌面时再显式选择。",
             )
             forbidden = st.multiselect(
                 "禁止的动作",
@@ -303,6 +333,13 @@ def _render_task_card_section() -> None:
                 "有效期（分钟）", min_value=1, max_value=1440,
                 value=int(active.valid_minutes if active else 120),
             )
+            rollback_note_value = st.text_area(
+                "回滚说明（可选）",
+                value=active.rollback_note if active else "",
+                height=60,
+                placeholder="例如：只回滚文件类改动；命令/GUI 不在回滚范围",
+            )
+            st.caption(f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}")
             uncertain = st.text_input(
                 "不确定时怎么办",
                 value=active.on_uncertain if active else "标记 UNKNOWN 并停下来问人",
@@ -315,6 +352,7 @@ def _render_task_card_section() -> None:
                 user=user.strip(),
                 goal=goal.strip(),
                 success_criteria=[line.strip() for line in criteria.splitlines() if line.strip()],
+                machine_checks=[line.strip() for line in machine_checks.splitlines() if line.strip()],
                 input_scope=[line.strip() for line in input_scope.splitlines() if line.strip()],
                 output_location=output_location.strip(),
                 allowed_actions=allowed,
@@ -323,6 +361,7 @@ def _render_task_card_section() -> None:
                 max_minutes=int(minutes),
                 max_cost_yuan=float(cost),
                 valid_minutes=int(valid_minutes),
+                rollback_note=rollback_note_value.strip(),
                 on_uncertain=uncertain.strip(),
             )
             errors = card.validate()
@@ -595,11 +634,19 @@ for index, message in enumerate(message_list):
 _render_hitl_block(st.session_state["agent"])
 
 if prompt:
+    active_card = TaskCard.from_dict(st.session_state.get("task_card"))
+    if active_card is None:
+        st.warning("请先在侧边栏启用任务卡：每个任务都必须有目标、成功判据、范围和预算。")
+        st.stop()
+    errors = active_card.validate()
+    if errors:
+        st.error("任务卡当前不合法，请先修正：" + "；".join(errors))
+        st.stop()
+
     st.chat_message("user").write(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
 
     with st.spinner("正在处理..."):
-        active_card = TaskCard.from_dict(st.session_state.get("task_card"))
         try:
             content, operations = _render_events(
                 st.session_state["agent"].execute_stream(

@@ -28,6 +28,7 @@ from langchain_core.tools import tool
 from agent.tools.safety import (
     backup_before_overwrite,
     check_command,
+    check_tree_write_suffix,
     check_write_suffix,
     format_size,
     guard_path,
@@ -362,6 +363,12 @@ def move_path(source: str, destination: str) -> str:
         return "不能移动工作区域根目录本身，请选择具体的子目录或文件。"
     if dst.is_dir():
         dst = dst / src.name
+    suffix_error = check_write_suffix(dst)
+    if suffix_error:
+        return suffix_error
+    source_tree_error = check_tree_write_suffix(src)
+    if source_tree_error:
+        return source_tree_error
 
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -391,6 +398,12 @@ def copy_path(source: str, destination: str) -> str:
         return "不能复制工作区域根目录本身，请选择具体的子目录或文件。"
     if dst.is_dir():
         dst = dst / src.name
+    suffix_error = check_write_suffix(dst)
+    if suffix_error:
+        return suffix_error
+    source_tree_error = check_tree_write_suffix(src)
+    if source_tree_error:
+        return source_tree_error
 
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)

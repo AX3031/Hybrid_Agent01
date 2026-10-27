@@ -17,6 +17,8 @@ from datetime import datetime
 from typing import Any
 
 from agent.guard.config import task_defaults
+from agent.guard import criteria
+from agent.guard.scope import ROLLBACK_BOUNDARY_TEXT
 
 ACTION_READ = "读"
 ACTION_WRITE = "写"
@@ -59,6 +61,7 @@ class TaskCard:
     user: str
     goal: str
     success_criteria: list[str] = field(default_factory=list)
+    machine_checks: list[str] = field(default_factory=list)
     input_scope: list[str] = field(default_factory=list)
     output_location: str = ""
     allowed_actions: list[str] = field(default_factory=list)
@@ -80,6 +83,7 @@ class TaskCard:
             "user": self.user,
             "goal": self.goal,
             "success_criteria": list(self.success_criteria),
+            "machine_checks": list(self.machine_checks),
             "input_scope": list(self.input_scope),
             "output_location": self.output_location,
             "allowed_actions": list(self.allowed_actions),
@@ -102,6 +106,7 @@ class TaskCard:
             user=str(data.get("user", "")).strip(),
             goal=str(data.get("goal", "")).strip(),
             success_criteria=_as_list(data.get("success_criteria")),
+            machine_checks=_as_list(data.get("machine_checks")),
             input_scope=_as_list(data.get("input_scope")),
             output_location=str(data.get("output_location", "")).strip(),
             allowed_actions=_as_list(data.get("allowed_actions")),
@@ -129,6 +134,25 @@ class TaskCard:
             errors.append("至少写一条成功判据（机器能判定的那种，例如文件数一致、合计金额一致）")
         if not self.allowed_actions:
             errors.append("至少允许一个动作类别（只读任务就选「读」）")
+
+        # 写入/命令/打开类任务必须有可执行的机器判据；只有只读/纯 GUI 任务
+        # 允许留空，但任务结束时只能标“未确认”。
+        machine_required = {
+            ACTION_WRITE,
+            ACTION_MOVE,
+            ACTION_COPY,
+            ACTION_DELETE,
+            ACTION_COMMAND,
+            ACTION_OPEN,
+        }
+        if not self.machine_checks and any(
+            action in machine_required for action in self.allowed_actions
+        ):
+            errors.append(
+                "写入/命令/打开类任务至少需要一条机器判据，"
+                "例如 exists|D:\\输出\\结果.xlsx 或 file_count|D:\\输出|3"
+            )
+        errors.extend(criteria.validate_machine_checks(self.machine_checks))
 
         if not (1 <= int(self.max_steps) <= 200):
             errors.append("步数上限必须在 1–200 之间")
@@ -181,7 +205,8 @@ class TaskCard:
     # ------------------------------------------------------------------
 
     def to_prompt(self) -> str:
-        criteria = "\n".join(f"  - {item}" for item in self.success_criteria) or "  - （未填写）"
+        criteria_text = "\n".join(f"  - {item}" for item in self.success_criteria) or "  - （未填写）"
+        machine = "\n".join(f"  - {item}" for item in self.machine_checks) or "  - （未配置；只能标未确认）"
         allowed = "、".join(self.allowed_actions) or "未限制（但仍受工作区与安全策略约束）"
         forbidden = "、".join(self.forbidden_actions) or "无"
         scope = "、".join(self.input_scope) or "工作区内的只读范围"
@@ -192,7 +217,9 @@ class TaskCard:
             f"使用者：{self.user or '未填写'}\n"
             f"目标：{self.goal}\n"
             "成功判据（完成前逐条核对）：\n"
-            f"{criteria}\n"
+            f"{criteria_text}\n"
+            "机器判据（任务结束由代码核对，未通过/未确认不能算完成）：\n"
+            f"{machine}\n"
             f"输入范围：{scope}\n"
             f"输出位置：{output}\n"
             f"允许的动作：{allowed}\n"
@@ -200,7 +227,11 @@ class TaskCard:
             f"预算：步数≤{self.max_steps}，时长≤{self.max_minutes} 分钟，费用≤{self.max_cost_yuan} 元\n"
             f"有效期：本次任务开始后 {self.valid_minutes} 分钟\n"
             f"回滚方式：{self.rollback_note or '批次号会在任务开始时生成，可在界面「批次与回滚」里一键撤销整批'}\n"
+            f"回滚边界：{ROLLBACK_BOUNDARY_TEXT}\n"
             f"不确定时：{self.on_uncertain}\n"
+            "语义禁令说明：如果禁止动作里包含「发送/提交/付款」，系统会保守拒绝"
+            "所有 GUI 输入类动作（点击/键盘/剪贴板写入/应用启停），因为无法判断一次点击"
+            "是否会触发提交；不要尝试用命令或打开程序绕过。\n"
             "执行纪律：\n"
             "1. 不要调用任务卡之外的工具类别；被拒绝时不要尝试绕过。\n"
             "2. 每做完一个写操作，用确定性证据核对成功判据；核对不了就说「未确认」。\n"

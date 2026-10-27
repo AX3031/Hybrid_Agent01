@@ -122,6 +122,89 @@ _BACKUP_MAX_BYTES = 10 * 1024 * 1024
 # Agent 自己的状态/备份/回收目录：只允许读，不允许写，防止模型篡改批次记录或备份。
 _RESERVED_DIR_NAMES = (".agent_state", ".agent_backup", ".agent_trash")
 
+# 项目自身的源码/配置/提示词/脚本/日志/虚拟环境与 Git 元数据：Agent 只能读，不能写。
+# 这里用相对项目根的路径判断，避免把同名目录（例如工作区里的 logs）误伤。
+_PROJECT_ROOT = Path(get_project_root()).resolve()
+_PROJECT_PROTECTED_DIRS = frozenset(
+    {
+        "agent",
+        "config",
+        "prompts",
+        "scripts",
+        "utils",
+        "model",
+        "memorys",
+        "env_patch",
+        "tests",
+        "logs",
+        ".git",
+        ".github",
+        ".venv",
+        ".idea",
+        ".vscode",
+    }
+)
+_PROJECT_PROTECTED_FILES = frozenset(
+    {
+        "app.py",
+        "app_file_uploader.py",
+        "main.py",
+        "test1.py",
+        "pyproject.toml",
+        "uv.lock",
+        "setup.py",
+        "setup.cfg",
+        "pytest.ini",
+        "tox.ini",
+        "AGENTS.md",
+        "README.md",
+        "CHANGELOG.md",
+        ".gitignore",
+        ".env",
+    }
+)
+
+_PROJECT_PATH_TOKEN = re.compile(
+    r"(?i)(?<![a-z0-9_.-])(agent|config|prompts|scripts|utils|model|memorys|env_patch|tests|logs|\.venv|\.git|\.github)"
+    r"(?:[\\/]|(?=$|[\s\"'&|;]))"
+)
+_PROJECT_FILE_TOKEN = re.compile(
+    r"(?i)(?<![a-z0-9_.-])(app\.py|app_file_uploader\.py|main\.py|test1\.py|"
+    r"pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|pytest\.ini|tox\.ini|"
+    r"agents\.md|readme\.md|changelog\.md)(?=$|[\s\"'&|;<>])"
+)
+_PROJECT_ENV_TOKEN = re.compile(
+    r"(?i)(?<![a-z0-9_.-])\.env(?:\.[a-z0-9_.-]+)?(?![a-z0-9_.-])"
+)
+
+
+def is_project_protected(path: Path) -> bool:
+    """判断路径是否属于项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据。"""
+    try:
+        relative = path.resolve().relative_to(_PROJECT_ROOT)
+    except (OSError, ValueError):
+        return False
+    parts = [part.lower() for part in relative.parts]
+    if not parts:
+        return False
+    if parts[0] in _PROJECT_PROTECTED_DIRS:
+        return True
+    if len(parts) == 1:
+        if parts[0] in _PROJECT_PROTECTED_FILES:
+            return True
+        if parts[0] == ".env" or parts[0].startswith(".env."):
+            return True
+    return False
+
+
+def _command_touches_project_protected(command: str) -> bool:
+    """命令文本是否引用项目受保护路径。"""
+    return bool(
+        _PROJECT_PATH_TOKEN.search(command)
+        or _PROJECT_FILE_TOKEN.search(command)
+        or _PROJECT_ENV_TOKEN.search(command)
+    )
+
 
 def workspace_roots() -> list[Path]:
     """返回当前生效的工作区域列表。"""
@@ -270,6 +353,11 @@ def guard_path(raw: str, *, for_write: bool = False) -> tuple[Path | None, str]:
         return None, f"该路径属于敏感目录，已拒绝访问：{path}"
     if for_write and _is_reserved(path):
         return None, f"该路径属于 Agent 的状态/备份/回收目录，已拒绝修改：{path}"
+    if for_write and is_project_protected(path):
+        return None, (
+            f"该路径属于项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据，"
+            f"Agent 不得写入：{path}"
+        )
     if for_write and is_system_protected(path):
         return None, f"该路径属于系统保护目录，已拒绝修改：{path}"
     return path, ""
@@ -288,6 +376,20 @@ def check_write_suffix(path: Path) -> str:
             f"出于安全考虑，拒绝写入可执行文件类型（{suffix}）：{path}\n"
             "如果确实需要脚本，请先用 .txt 保存，再自行重命名。"
         )
+    return ""
+
+
+def check_tree_write_suffix(path: Path) -> str:
+    """检查目录树里是否含可执行后缀；用于复制/移动整个目录。"""
+    if path.is_file():
+        return check_write_suffix(path)
+    if not path.is_dir():
+        return ""
+    for current_root, _dir_names, file_names in os.walk(path):
+        for name in file_names:
+            error = check_write_suffix(Path(current_root) / name)
+            if error:
+                return error
     return ""
 
 
@@ -370,6 +472,10 @@ _DANGEROUS_COMMANDS = [
     (re.compile(r"\bwmic\b", re.IGNORECASE), "WMI 操作"),
     (re.compile(r"\bStart-Process\b", re.IGNORECASE), "启动外部程序（请使用 open_path）"),
     (re.compile(r"\b(Invoke-WebRequest|Invoke-Expression|iwr|iex)\b", re.IGNORECASE), "下载或执行脚本"),
+    (re.compile(
+        r"\b(copy|move|xcopy|robocopy)\b[^\n]*\.(exe|dll|bat|cmd|ps1|vbs|js|msi|scr|com)\b",
+        re.IGNORECASE,
+    ), "复制/移动为可执行文件"),
 ]
 
 _WIN_ABS_PATH = re.compile(r"([A-Za-z]:[\\/][^\s\"'|<>]*)")
@@ -385,6 +491,11 @@ def check_command(command: str) -> str:
     for name in _RESERVED_DIR_NAMES:
         if name in lowered:
             return f"该命令访问了 Agent 的状态/备份/回收目录（{name}），已拒绝：{text}"
+    if _command_touches_project_protected(text):
+        return (
+            "该命令引用了项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据，"
+            f"已拒绝：{text}"
+        )
     try:
         from agent.guard.approval import approval_dir
 

@@ -13,6 +13,7 @@
 import json
 import os
 import shutil
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,7 @@ from langgraph.types import Command
 
 from agent.guard import approval, journal, policy
 from agent.guard import state as guard_state
+from agent.guard import criteria, scope
 from agent.guard.lock import TaskBusyError, task_lock
 from agent.guard.task_card import TaskCard
 from agent.tools import safety
@@ -41,6 +43,7 @@ from agent.tools.os_tools import (
 from agent.tools.verification import verify_tool_outcome
 from tests.fakes import ScriptedToolModel
 from utils import audit_logger
+from utils.path_tool import get_project_root
 
 
 class GuardTestBase(unittest.TestCase):
@@ -86,6 +89,7 @@ class GuardTestBase(unittest.TestCase):
             "user": "小李",
             "goal": "整理 out 目录",
             "success_criteria": ["out 目录文件数符合预期"],
+            "machine_checks": [f"exists|{self.output}"],
             "input_scope": [str(self.workspace)],
             "output_location": str(self.output),
             "allowed_actions": ["读", "写", "移动", "复制", "删除", "命令"],
@@ -275,6 +279,35 @@ class SecondSubjectTest(GuardTestBase):
         self.assertTrue(approval.verify_approval_token(token))
         self.assertFalse(approval.verify_approval_token("not-a-token"))
 
+    def test_approval_token_is_bound_to_thread_batch_and_actions(self):
+        approval.set_pin("Abc12345")
+        actions = [{"name": "run_command", "args": {"command": "dir"}}]
+        token = approval.sign_approval("t1", "B1", actions)
+        self.assertTrue(
+            approval.verify_approval_token(
+                token, thread_id="t1", batch_id="B1", actions=actions
+            )
+        )
+        self.assertFalse(
+            approval.verify_approval_token(
+                token, thread_id="t2", batch_id="B1", actions=actions
+            )
+        )
+        self.assertFalse(
+            approval.verify_approval_token(
+                token, thread_id="t1", batch_id="B2", actions=actions
+            )
+        )
+        self.assertFalse(
+            approval.verify_approval_token(
+                token,
+                thread_id="t1",
+                batch_id="B1",
+                actions=[{"name": "run_command", "args": {"command": "whoami"}}],
+            )
+        )
+        self.assertFalse(approval.verify_approval_token(token, max_age_seconds=-10))
+
     def test_approval_dir_is_blocked_for_agent_tools(self):
         approval.set_pin("Abc12345")
         pin_path = self.approval_dir / "pin.json"
@@ -344,6 +377,179 @@ class AuditAndVerificationTest(GuardTestBase):
         self.assertTrue(outcome.checked)
         self.assertFalse(outcome.ok)
         self.assertIn("不一致", outcome.note)
+
+
+class ProjectProtectionTest(GuardTestBase):
+    def test_project_protected_paths_are_recognized(self):
+        root = Path(get_project_root()).resolve()
+        protected = [
+            "agent/guard/policy.py",
+            "config/agent.yml",
+            "prompts/main_prompt.txt",
+            "scripts/apply_env_patch.py",
+            "utils/audit_logger.py",
+            "model/factory.py",
+            "env_patch/sitecustomize.py",
+            "tests/test_small_business_guard.py",
+            ".venv/Lib/site-packages/sitecustomize.py",
+            ".git/config",
+            "logs/audit_20261027.jsonl",
+            "memorys/chat_history/agent.json",
+            ".env",
+        ]
+        for relative in protected:
+            self.assertTrue(
+                safety.is_project_protected(root / relative),
+                relative,
+            )
+        self.assertFalse(safety.is_project_protected(root / "data" / "output.txt"))
+
+    def test_project_protected_path_cannot_be_written(self):
+        root = Path(get_project_root()).resolve()
+        old_roots = safety.WORKSPACE_ROOTS
+        try:
+            safety.WORKSPACE_ROOTS = [root]
+            path, error = safety.guard_path("config/agent.yml", for_write=True)
+            self.assertIsNone(path)
+            self.assertIn("项目源码", error)
+            path, error = safety.guard_path("data/output.txt", for_write=True)
+            self.assertIsNotNone(path)
+            self.assertEqual(error, "")
+        finally:
+            safety.WORKSPACE_ROOTS = old_roots
+
+    def test_command_cannot_touch_project_protected_paths(self):
+        self.assertIn("项目源码", safety.check_command("Set-Content config/agent.yml x"))
+        self.assertIn("项目源码", safety.check_command("copy a.txt logs/x.txt"))
+        self.assertIn("复制/移动为可执行文件", safety.check_command("copy a.txt b.bat"))
+        self.assertEqual(safety.check_command("dir data"), "")
+
+
+class CopyMoveSuffixTest(GuardTestBase):
+    def test_copy_to_executable_suffix_is_rejected(self):
+        source = self.workspace / "note.txt"
+        source.write_text("hello", encoding="utf-8")
+        result = copy_path.invoke(
+            {"source": str(source), "destination": str(self.workspace / "note.bat")}
+        )
+        self.assertIn("可执行文件类型", result)
+        self.assertFalse((self.workspace / "note.bat").exists())
+
+    def test_move_to_executable_suffix_is_rejected(self):
+        source = self.workspace / "move.txt"
+        source.write_text("hello", encoding="utf-8")
+        result = move_path.invoke(
+            {"source": str(source), "destination": str(self.workspace / "move.ps1")}
+        )
+        self.assertIn("可执行文件类型", result)
+        self.assertTrue(source.exists())
+        self.assertFalse((self.workspace / "move.ps1").exists())
+
+    def test_directory_copy_with_executable_inside_is_rejected(self):
+        source_dir = self.workspace / "source_dir"
+        source_dir.mkdir()
+        (source_dir / "payload.bat").write_text("@echo off", encoding="utf-8")
+        destination = self.output / "copied_dir"
+        result = copy_path.invoke(
+            {"source": str(source_dir), "destination": str(destination)}
+        )
+        self.assertIn("可执行文件类型", result)
+        self.assertFalse(destination.exists())
+
+
+class GuiSemanticForbiddenTest(GuardTestBase):
+    def test_gui_mutation_is_blocked_when_card_forbids_send_or_pay(self):
+        card = self.make_card(allowed_actions=["桌面"], forbidden_actions=["发送", "付款"])
+        reason = policy.check_task_card(
+            card,
+            "computer_use",
+            {"action": "type_text", "text": "hi"},
+        )
+        self.assertIn("无法判断", reason)
+
+    def test_gui_mutation_passes_when_semantic_forbidden_is_removed(self):
+        card = self.make_card(allowed_actions=["桌面"], forbidden_actions=[])
+        self.assertEqual(
+            policy.check_task_card(
+                card,
+                "computer_use",
+                {"action": "type_text", "text": "hi"},
+            ),
+            "",
+        )
+        self.assertEqual(
+            policy.check_task_card(
+                card,
+                "computer_use",
+                {"action": "screenshot"},
+            ),
+            "",
+        )
+
+
+class TaskCardMachineCheckTest(GuardTestBase):
+    def test_write_card_requires_machine_check(self):
+        card = self.make_card(machine_checks=[], allowed_actions=["写"])
+        errors = card.validate()
+        self.assertTrue(any("机器判据" in item for item in errors))
+
+    def test_readonly_card_can_omit_machine_check(self):
+        card = self.make_card(machine_checks=[], allowed_actions=["读"])
+        self.assertEqual(card.validate(), [])
+
+    def test_machine_checks_pass_with_deterministic_evidence(self):
+        target = self.output / "result.txt"
+        target.write_text("hello", encoding="utf-8")
+        checks = [
+            f"exists|{target}",
+            f"file_count|{self.output}|1",
+            f"file_size|{target}|5",
+            f"sha256|{target}|{hashlib.sha256(b'hello').hexdigest()}",
+            f"text_contains|{target}|hello",
+            f"absent|{self.output / 'missing.txt'}",
+            f"text_not_contains|{target}|bye",
+        ]
+        report = criteria.criteria_report(checks)
+        self.assertEqual(report["status"], "passed", report["text"])
+
+    def test_machine_check_failure_is_not_completion(self):
+        target = self.output / "result.txt"
+        target.write_text("hello", encoding="utf-8")
+        report = criteria.criteria_report([f"text_contains|{target}|bye"])
+        self.assertEqual(report["status"], "failed")
+
+    def test_machine_check_invalid_path_is_rejected_by_card(self):
+        card = self.make_card(machine_checks=[f"exists|{self.tmp / 'outside'}"])
+        errors = card.validate()
+        self.assertTrue(any("机器判据路径不在工作区域内" in item for item in errors))
+
+    def test_rollback_boundary_is_explicit(self):
+        self.assertTrue(scope.is_rollbackable("write_text_file"))
+        self.assertFalse(scope.is_rollbackable("run_command"))
+        self.assertFalse(
+            scope.is_rollbackable("delete_path", {"permanent": True})
+        )
+        self.assertIn("不可回滚", scope.ROLLBACK_BOUNDARY_TEXT)
+
+    def test_task_card_prompt_contains_machine_checks_and_boundary(self):
+        card = self.make_card(machine_checks=[f"exists|{self.output}"])
+        prompt = card.to_prompt()
+        self.assertIn("机器判据", prompt)
+        self.assertIn("回滚边界", prompt)
+        self.assertIn("语义禁令", prompt)
+
+    def test_verification_failure_marks_task_not_finished(self):
+        guard_state.start_task("verify-failed", self.make_card(), batch_id="BVERIFY-1")
+        guard_state.mark_verification("failed")
+        self.assertEqual(guard_state.current().status, "verification_failed")
+        guard_state.end_task("finished")
+        self.assertIsNone(guard_state.current())
+
+
+class TaskCardRequiredTest(GuardTestBase):
+    def test_new_task_without_card_is_rejected(self):
+        with self.assertRaises(ValueError):
+            guard_state.start_task("no-card", None)
 
 
 class GuardMiddlewareOrderTest(GuardTestBase):
@@ -474,6 +680,87 @@ class GuardMiddlewareOrderTest(GuardTestBase):
         self.assertTrue(messages)
         self.assertEqual(messages[-1].status, "error")
         self.assertIn("审批凭证", messages[-1].content)
+        guard_state.end_task()
+
+    def _build_r2_graph(self):
+        from agent.guard.middlewares import guard_execute, guard_preflight
+        from agent.tools.middleware import monitor_tool
+
+        model = ScriptedToolModel(
+            tool_name="run_command",
+            tool_args={"command": "echo hi"},
+            final_text="完成",
+        )
+        graph = create_agent(
+            model,
+            tools=[run_command],
+            middleware=[
+                monitor_tool,
+                guard_preflight,
+                HumanInTheLoopMiddleware(
+                    interrupt_on={
+                        "run_command": {"allowed_decisions": ["approve", "reject"]}
+                    }
+                ),
+                guard_execute,
+            ],
+            checkpointer=InMemorySaver(),
+        )
+        return graph, {"configurable": {"thread_id": "guard-pin"}}
+
+    def test_dummy_token_is_rejected_not_just_checked_for_presence(self):
+        guard_state.start_task("g5", self.make_card(), batch_id="BGUARD-5")
+        graph, config = self._build_r2_graph()
+        list(graph.stream({"messages": [{"role": "user", "content": "执行"}]}, config=config))
+        guard_state.set_approval_context(
+            "dummy-token",
+            "human",
+            [{"name": "run_command", "args": {"command": "echo hi"}}],
+            thread_id="g5",
+            batch_id="BGUARD-5",
+        )
+        list(
+            graph.stream(
+                Command(resume={"decisions": [{"type": "approve"}]}),
+                config=config,
+            )
+        )
+        messages = [
+            message
+            for message in graph.get_state(config).values["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertTrue(messages)
+        self.assertEqual(messages[-1].status, "error")
+        self.assertIn("审批凭证", messages[-1].content)
+        guard_state.end_task()
+
+    def test_valid_bound_token_is_accepted(self):
+        guard_state.start_task("g6", self.make_card(), batch_id="BGUARD-6")
+        graph, config = self._build_r2_graph()
+        list(graph.stream({"messages": [{"role": "user", "content": "执行"}]}, config=config))
+        actions = [{"name": "run_command", "args": {"command": "echo hi"}}]
+        token = approval.sign_approval("g6", "BGUARD-6", actions)
+        guard_state.set_approval_context(
+            token,
+            "human",
+            actions,
+            thread_id="g6",
+            batch_id="BGUARD-6",
+        )
+        list(
+            graph.stream(
+                Command(resume={"decisions": [{"type": "approve"}]}),
+                config=config,
+            )
+        )
+        messages = [
+            message
+            for message in graph.get_state(config).values["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertTrue(messages)
+        self.assertEqual(messages[-1].status, "success", messages[-1].content)
         guard_state.end_task()
 
 

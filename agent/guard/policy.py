@@ -35,6 +35,11 @@ DESKTOP_READ_ONLY_ACTIONS = {
     "app_list",
 }
 
+# 任务卡里的“发送/提交/付款”是语义禁令，不是工具类别；GUI 无法从坐标/文字
+# 判断某次点击是否会真正发送或付款。因此只要卡里保留了这些词，就保守拒绝
+# 所有会触发副作用的桌面动作，避免给出“已经禁止”的虚假安全感。
+GUI_SEMANTIC_FORBIDDEN = {"发送", "提交", "付款"}
+
 _ACTION_BY_TOOL = {
     "get_system_info": ACTION_READ,
     "list_processes": ACTION_READ,
@@ -273,7 +278,17 @@ def check_task_card(card: TaskCard, tool_name: str, args: dict | None = None) ->
         return ""
 
     if tool_name == "computer_use":
-        if str(args.get("action", "")) == "locate_image":
+        action = str(args.get("action", ""))
+        if action not in DESKTOP_READ_ONLY_ACTIONS:
+            semantic = [item for item in card.forbidden_actions if item in GUI_SEMANTIC_FORBIDDEN]
+            if semantic:
+                return (
+                    f"任务卡禁止了「{'、'.join(semantic)}」，但系统无法判断一次点击/输入"
+                    "是否会触发发送、提交或付款；为避免虚假保证，已拒绝该 GUI 输入类动作。"
+                    "如果确实需要 GUI 输入，请从任务卡的禁止动作里移除这些语义词，"
+                    "并保留人工确认 + PIN。"
+                )
+        if action == "locate_image":
             raw = str(args.get("image_path", ""))
             if raw:
                 # locate_image 的模板图允许放在输入范围或输出位置

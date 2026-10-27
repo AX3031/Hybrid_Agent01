@@ -22,6 +22,7 @@ from langchain.agents.middleware import (
 )
 from langchain_core.messages import AIMessage, ToolMessage
 
+from agent.guard import approval
 from agent.guard import policy
 from agent.guard import state as guard_state
 from utils.logger_handler import logger
@@ -61,11 +62,32 @@ def guard_execute(request, handler):
         reason = policy.check_read_only(tool_name, args)
     if not reason and policy.requires_second_subject(tool_name, args):
         context = guard_state.approval_context(tool_name)
-        if not context.get("token"):
+        token = str(context.get("token") or "")
+        if not token:
             reason = (
                 "该动作属于 R2/R3，需要人工审批口令（PIN）后才能执行；"
                 "当前没有有效的审批凭证。"
             )
+        else:
+            task = guard_state.current()
+            thread_id = str(context.get("thread_id") or (task.thread_id if task else ""))
+            batch_id = str(context.get("batch_id") or (task.batch_id if task else ""))
+            approved_actions = context.get("actions") or []
+            if not thread_id or not batch_id:
+                reason = (
+                    "审批凭证缺少任务/批次绑定，无法证明它属于当前任务；"
+                    "这次 R2/R3 动作没有执行。"
+                )
+            elif not approval.verify_approval_token(
+                token,
+                thread_id=thread_id,
+                batch_id=batch_id,
+                actions=approved_actions,
+            ):
+                reason = (
+                    "审批凭证无效、已过期，或与当前任务/批次/动作不匹配；"
+                    "这次 R2/R3 动作没有执行。请重新发起审批。"
+                )
     if reason:
         logger.warning(f"[guard]执行前拒绝 {tool_name}：{reason}")
         return _error_message(request, tool_name, reason)

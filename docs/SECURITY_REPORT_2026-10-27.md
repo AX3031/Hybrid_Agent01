@@ -13,6 +13,8 @@
 > 与旧报告的关系：`docs/SECURITY_REPORT.md`（2026-10-26，v1.0）的威胁模型、能力矩阵和部分技术债仍可参考；本报告只描述**当前代码的真实状态**。两者冲突时，以本报告和代码为准。
 >
 > 复审周期：修改工具、权限、工作区、命令执行、审批或守卫层后必须复审；否则至少每季度一次。
+>
+> **2026-10-27 15:48 后续修复**：本轮已修复 R-02（项目源码/配置/日志/虚拟环境写保护）、R-04（审批凭证执行侧验签）、R-05（复制/移动后缀）、R-06（GUI 语义禁令），并补上任务卡全覆盖、机器判据、回滚边界。R-01（`.env` 可读）、R-03（审计原始参数/可读）、R-07（出口白名单）、R-09（系统级沙箱）仍开放。原始评估内容保留，修复细节见 4.13；P0 对照表同步更新。
 
 ---
 
@@ -59,6 +61,8 @@ P0 守卫层（任务卡、只读、批次回滚、预算急停、单任务锁�
 8. **默认只读、只在需要时开写；高风险任务不要放在同一台有敏感数据的电脑上。**
 
 > 以上不是“以后再说”的建议，而是当前代码里可复现的缺口；详见第 4 节。
+>
+> 2026-10-27 15:48 后续修复：第 2/4/5/6 项已落地（项目写保护、审批验签、复制/移动后缀、GUI 语义拦截、任务卡全覆盖与机器判据）；第 1 项 `.env` 读取、第 3 项审计原始参数、第 7 项默认工作区、第 8 项系统级隔离仍未完成。
 
 ---
 
@@ -70,17 +74,17 @@ P0 守卫层（任务卡、只读、批次回滚、预算急停、单任务锁�
 | --- | --- |
 | 代码与配置审阅 | 逐项核对 `agent/guard/`、`agent/tools/`、`app.py`、`utils/audit_logger.py`、`config/`、`prompts/` |
 | 路径/权限探针 | 用只读探针确认 `.env`、`config/agent.yml`、`logs/`、`.venv/` 等路径是否被允许 |
-| 离线用例 | 运行 `tests/` 下 47 条 unittest（假模型，不联网） |
-| 守卫层专项 | 运行 `scripts/verify_small_business.py`，47/47 通过，P0 27/27 |
+| 离线用例 | 运行 `tests/` 下 67 条 unittest（假模型，不联网） |
+| 守卫层专项 | 运行 `scripts/verify_small_business.py`，67/67 通过，P0 47/47 |
 | 旧报告对照 | 对照 `docs/SECURITY_REPORT.md`（2026-10-26）的能力矩阵、技术债和残余风险 |
 
 ### 1.2 证据
 
 | 证据 | 结果 |
 | --- | --- |
-| `python -m unittest discover -s tests` | **47 条通过**（0 失败 / 0 异常 / 0 跳过） |
-| `scripts/verify_small_business.py` | **47/47 通过，P0 守卫层 27/27** |
-| 证据文件 | `docs/small-business-p0/evidence/verify-20261027-112249.json` |
+| `python -m unittest discover -s tests` | **67 条通过**（0 失败 / 0 异常 / 0 跳过） |
+| `scripts/verify_small_business.py` | **67/67 通过，P0 守卫层 47/47** |
+| 证据文件 | `docs/small-business-p0/evidence/verify-20261027-154810.json` |
 | 运行时环境 | Windows 22H2、Python 3.14.7（uv 环境）、LangChain 1.4、LangGraph 1.2.11 |
 | 测试性质 | 假模型、不联网、不花钱；**不是**真实红队或渗透测试 |
 
@@ -349,6 +353,8 @@ ReactAgent（agent/react_agent.py）
 
 ### R-01 `.env` 等秘密文件可被读取（高 / P0）
 
+> 2026-10-27 状态：**仍开放**。
+
 **代码事实：**
 
 - `config/agent.yml` 默认 `workspace_roots: ["~", "."]`，项目根在允许范围内。
@@ -383,15 +389,17 @@ ReactAgent（agent/react_agent.py）
 
 ### R-02 Agent 可写源码/配置/提示词/`.venv`/日志（高 / P0）
 
+> 2026-10-27 状态：**写路径已修复**（项目源码/配置/提示词/脚本/`utils/`/`model/`/`memorys/`/`env_patch/`/`tests/`/`.venv/`/`.git/`/`logs/`）；`data/` 输出目录的 `.py` 仍需输出白名单。
+
 **代码事实：**
 
-- `write_text_file` 只做可执行后缀检查（17 种）；`.py`、`.yml`、`.yaml`、`.json`、`.jsonl`、`.txt`、`.pth` 都允许。
-- `guard_path` 的保护目录是 `.agent_state`、`.agent_backup`、`.agent_trash`（写）和审批目录（读写）；**不包括** `agent/`、`config/`、`prompts/`、`scripts/`、`.venv/`、`.git/`、`logs/`、`memorys/`。
-- 路径探针确认：`write_text_file` 的目标路径 `config/agent.yml`、`logs/audit_20261027.jsonl`、`.venv/Lib/site-packages/sitecustomize.py` 都能通过 `guard_path(..., for_write=True)`；`.py` 不触发 `check_write_suffix`。
-- `write_text_file` 需要任务卡 + HITL，但它是 R1（不需要 PIN）；任务卡如果把输出位置设成项目根，范围检查也通过。
-- `run_command` 不做“命令会改哪些文件”的解析；相对路径改 `config/agent.yml`、`logs/audit_*.jsonl` 不需要通过 `guard_path` 的逐文件检查。
+- `write_text_file` 仍只做 17 种可执行后缀检查；`.py`、`.yml`、`.yaml`、`.json`、`.jsonl`、`.txt`、`.pth` **在未被项目保护的位置**仍允许。
+- `guard_path(..., for_write=True)` 现在保护 `.agent_state`/`.agent_backup`/`.agent_trash`、审批目录，以及项目 `agent/ config/ prompts/ scripts/ utils/ model/ memorys/ env_patch/ tests/ .venv/ .git/ .github/ logs/` 与根目录源码/配置；`data/` 输出目录仍允许写。
+- 路径探针（修复后）确认 `config/agent.yml`、`logs/audit_*.jsonl`、`.venv/.../sitecustomize.py` 已被拒绝；`data/output.txt` 仍允许。
+- `write_text_file` 需要任务卡 + HITL，但它是 R1（不需要 PIN）；任务卡输出位置仍应指向专用输出目录。
+- `run_command` 的 `check_command()` 现在拒绝引用项目受保护路径；但命令内部对 `data/` 等非保护目录的写入仍不逐文件解析。
 
-**一个现实场景：**
+**修复前场景（现已阻断）：**
 
 1. 不可信文档诱导模型“把配置修正一下”；
 2. 模型调用 `write_text_file("config/agent.yml", ...)`；确认卡片显示路径，用户可能觉得“只是改配置”而批准；
@@ -399,16 +407,16 @@ ReactAgent（agent/react_agent.py）
 4. 更严重：写 `agent/guard/policy.py`、`prompts/main_prompt.txt`、`.venv/Lib/site-packages/sitecustomize.py`，下次启动加载；
 5. 守卫层的“只读/范围/审计”被持久化绕过。
 
-**为什么现有控制挡不住：**
+**修复前为什么挡不住；现在的边界：**
 
-- 只挡“可执行后缀”，不挡“可被解释执行”的源码/配置/`.pth`；
-- 只保护 Agent 自己的状态目录，不保护 Agent 自己的代码和配置；
-- HITL 依赖用户看懂路径；R1 没有 PIN；
-- 没有启动时哈希校验/签名校验。
+- 旧版只挡可执行后缀、只保护状态目录；本轮已加项目写保护与命令路径拒绝；
+- `data/` 输出目录仍允许写 `.py`/`.pth`，需要输出白名单或后缀策略；
+- HITL 仍依赖用户看懂路径；R1 没有 PIN；
+- 仍没有启动时哈希校验/签名校验。
 
-**建议：**
+**建议（后续）：**
 
-- 对 `agent/`、`config/`、`prompts/`、`scripts/`、`.venv/`、`.git/`、`logs/`、`memorys/` 做**硬写保护**（无论确认与否都拒绝）；
+- 已完成：对 `agent/`、`config/`、`prompts/`、`scripts/`、`utils/`、`model/`、`memorys/`、`env_patch/`、`tests/`、`.venv/`、`.git/`、`logs/` 做硬写保护；
 - 把策略/配置放到工作区外，启动时校验哈希；
 - 只允许写一个专用输出目录；
 - 把 `.venv` 与源码放在独立账户/只读挂载；
@@ -416,22 +424,24 @@ ReactAgent（agent/react_agent.py）
 
 ---
 
-### R-03 审计/审批记录含原始敏感内容，且日志可被写（高 / P0）
+### R-03 审计/审批记录含原始敏感内容，日志可读且无 WORM（高 / P0）
+
+> 2026-10-27 状态：**部分修复**。`logs/` 已禁止 Agent 工具写入；`log_approval` 原始 actions、`read_text_file` 摘要、日志可读/无 WORM 仍开放。
 
 **代码事实：**
 
 - `audit_logger.log_tool_call` 记录 `args`；`monitor_tool` 只对 `computer_use` 调 `sanitize_tool_args`，`write_text_file` 的正文、`run_command` 的命令、`open_path` 的 URL 原样落盘。
 - `log_tool_call` 的 `result` 取 `sanitize_tool_result` 后 500 字符；`read_text_file` 的正文前 500 字符会进审计。
 - `log_approval` 直接写 `actions`（原始 action 参数），而 `app.py` 传入的是 HITL 的 `action_requests`；`type_text`、`clipboard_set`、`write_text_file`、`run_command` 的正文/命令/内容会进审批事件。该函数注释写“只记凭证摘要”，但代码并没有对 actions 做摘要/脱敏。
-- `logs/` 在项目工作区内，`write_text_file` 可写 `.jsonl`；`run_command` 也可以用相对路径覆盖/追加日志。`logs/` 不在 `_RESERVED_DIR_NAMES`。
+- `logs/` 已在项目写保护内：`write_text_file` 不能写 `.jsonl`，`run_command` 也拒绝项目路径引用；但日志文件本身仍可读。
 - `log_before_model` 在文件日志 DEBUG 级别记录最后一条消息前 300 字符，可能是文件内容。
 - 没有轮转、哈希链、WORM、外部 SIEM。
 
-**影响：**
+**影响（部分仍存在）：**
 
 - `.env`、客户文件、密码、验证码、命令参数可能同时出现在模型上下文、`logs/agent_*.log`、`logs/audit_*.jsonl`、审批记录；
-- Agent 或被注入的会话可以改写/删除审计，事后无法证明“谁做了什么”；
-- 日志本身成为泄露面，且可能被同步/备份到其他地方。
+- 修复后 Agent 工具不能写 `logs/`，但同用户其他程序仍可改；没有 WORM，事后仍无法完全证明“谁做了什么”；
+- 日志本身仍是泄露面，且可能被同步/备份到其他地方。
 
 **建议：**
 
@@ -439,43 +449,47 @@ ReactAgent（agent/react_agent.py）
 - 在 `log_tool_call` 对所有工具做通用 secret/PII 脱敏，而不只是 `computer_use`；
 - 审计目录放到工作区外，设为 Agent 工具只读；用追加写 + 哈希链或外部 SIEM；
 - 增加轮转与保留期；
-- 禁止 Agent 通过 `write_text_file`/`run_command` 改 `logs/`。
+- 已完成：禁止 Agent 通过 `write_text_file`/`run_command` 改 `logs/`；仍需上面四项。
 
 ---
 
-### R-04 审批凭证执行侧不验签（中高 / P1）
+### R-04 审批凭证执行侧验签不足（历史问题，2026-10-27 已修复）（中高 / P1）
+
+> 2026-10-27 状态：**已修复**。`guard_execute` 已调用 `verify_approval_token` 并绑定 thread/batch/actions；同机 PIN 与审计 token 仍开放。
 
 **代码事实：**
 
-- `approval.sign_approval()` 生成 HMAC 凭证；`verify_approval_token()` 能校验签名和 10 分钟有效期。
-- 但 `guard_execute` 只做：`context = approval_context(tool_name); if not context.get("token"): 拒绝`；没有调用 `verify_approval_token()`。
-- `state.set_approval_context()` 是公开函数，任何同进程代码都可以设置任意非空 token。
-- `app.py` 只在 PIN 校验通过后调用 `sign_approval` 并设置 context；这是目前唯一正确的路径。
+- `approval.sign_approval()` 生成 HMAC 凭证；`verify_approval_token()` 校验签名、10 分钟有效期，并支持 thread/batch/actions 绑定。
+- `guard_execute` 现在调用 `verify_approval_token()`；假 token、过期、错任务/批次/参数都会拒绝。
+- `state.set_approval_context()` 仍是进程内 API；但只有签名有效且绑定匹配时才会通过，单纯塞一个非空字符串不再够。
+- `app.py` 只在 PIN 校验通过后调用 `sign_approval` 并设置 context。
 
-**影响：**
+**修复前影响：**
 
 - 如果后续中间件/工具/脚本误用 `set_approval_context`，R2/R3 会在没有真实 PIN 的情况下执行；
-- “HMAC 签名”目前对审计/离线验证有价值，但不是运行时强制边界；
+- “HMAC 签名”当时对审计/离线验证有价值，但不是运行时强制边界；
 - 这降低了 PIN 的“第二主体”强度（同进程攻击面仍存在）。
 
 **建议：**
 
-- 把 token 通过 `resume_stream`/`Command` 传到 `guard_execute`，在真正执行前用 `verify_approval_token(token)` 校验签名、有效期、batch_id、actions 摘要；
+- 已完成：把 token 通过 `resume_stream`/`Command` 传到 `guard_execute`，执行前验 HMAC、有效期、thread/batch/actions；
 - 不在公开 API 暴露任意 token 设置；把审批上下文放进不可伪造的内部对象；
 - 审计记录验证结果（verified/failed）。
 
 ---
 
-### R-05 复制/移动绕过可执行后缀检查（中高 / P1）
+### R-05 复制/移动缺少可执行后缀检查（历史问题，2026-10-27 已修复）（中高 / P1）
+
+> 2026-10-27 状态：**已修复**。目标后缀、源目录树、命令 copy/move 都已检查；17 种后缀仍是黑名单。
 
 **代码事实：**
 
-- `write_text_file` 调 `check_write_suffix()`；`copy_path` 和 `move_path` **没有**调用它。
-- `check_command` 只拦截 `copy con`、重定向到可执行后缀、`Set-Content` 到可执行后缀；没有拦截 `copy a.txt b.bat` 或 `move a.txt b.ps1`。
-- `open_path` 对工作区内已存在的 `.exe`/`.bat`/`.py` 直接 `os.startfile`；没有后缀检查。
-- 结果是：可以先有/创建一个文本文件，再复制/重命名为 `.bat`/`.ps1`，最后 `run_command("b.bat")` 或 `open_path("b.bat")`。
+- `write_text_file` 调 `check_write_suffix()`；`copy_path` 和 `move_path` 现在也对目标调用它。
+- `check_command` 现在拦截 `copy`/`move`/`xcopy`/`robocopy` 到可执行后缀；复制/移动目录还会检查源目录树。
+- `open_path` 对工作区内已存在的 `.exe`/`.bat`/`.py` 仍直接 `os.startfile`，没有后缀检查；这是剩余缺口。
+- 修复前可以把文本文件复制/重命名为 `.bat`/`.ps1` 再执行；现在该链路在工具层被拒绝。
 
-**影响：**
+**修复前影响：**
 
 - 绕过“写入可执行文件”的防线；
 - 执行仍需要 R2 的 HITL + PIN（`run_command`/`open_path`），但如果用户批准，代码就会运行；
@@ -483,23 +497,25 @@ ReactAgent（agent/react_agent.py）
 
 **建议：**
 
-- `copy_path`/`move_path` 的目标也调用 `check_write_suffix()`；
-- `open_path` 对 `.exe/.bat/.cmd/.ps1/...` 做显式二次确认或拒绝；
-- `check_command` 增加 `copy`/`move`/`xcopy`/`robocopy` 到可执行后缀的规则；
-- 把“可执行内容”而不只是“后缀”纳入检测（至少做 magic/内容检查）。
+- 已完成：`copy_path`/`move_path` 的目标调用 `check_write_suffix()`；复制/移动目录检查源目录树；
+- 后续：`open_path` 对 `.exe/.bat/.cmd/.ps1/...` 做显式二次确认或拒绝；
+- 已完成：`check_command` 增加 `copy`/`move`/`xcopy`/`robocopy` 到可执行后缀的规则；
+- 后续：把“可执行内容”而不只是“后缀”纳入检测（至少做 magic/内容检查）。
 
 ---
 
 ### R-06 任务卡的“禁止发送/付款”不拦 GUI（中高 / P1）
 
+> 2026-10-27 状态：**部分修复**。GUI 输入类动作已保守拒绝；`run_command`/`open_path` 仍无法语义判断。
+
 **代码事实：**
 
 - `TaskCard.forbidden_actions` 默认包含“发送/提交/付款/提权”。
-- `policy.check_task_card()` 只比较 `tool_action()` 返回的动作类别（读/写/移动/复制/删除/命令/打开/桌面/联网）；`computer_use` 的类别是“桌面”。
-- `DEFAULT_FORBIDDEN` 里的“发送/付款”不是动作类别，因此不会匹配“桌面”动作。
-- `check_task_card()` 对 `computer_use` 只检查 `locate_image` 的 `image_path`；点击、输入、剪贴板、应用启停没有应用/收件人/金额参数检查。
+- `policy.check_task_card()` 先比较动作类别；`computer_use` 的类别是“桌面”。
+- 本轮新增：如果 `forbidden_actions` 含“发送/提交/付款”，所有 GUI **输入类**动作（点击/键盘/剪贴板写入/应用启停）被保守拒绝；只读桌面动作不受影响。
+- `check_task_card()` 对 `computer_use` 仍只检查 `locate_image` 的 `image_path`；点击/输入没有应用、收件人、金额参数级约束。
 
-**一个现实场景：**
+**修复前场景（GUI 输入现已阻断）：**
 
 1. 任务卡写“禁止发送、禁止付款”，允许“桌面”；
 2. 模型在微信/邮件/网银窗口里 `type_text`、`click`；
@@ -507,9 +523,9 @@ ReactAgent（agent/react_agent.py）
 4. 用户看到的是“输入文字/点击”，如果信任任务卡，可能直接批准 PIN；
 5. 消息/付款被发出。
 
-**影响：**
+**剩余影响：**
 
-- 任务卡给出“已经禁止发送/付款”的**虚假安全感**；
+- 任务卡给出“已经禁止发送/付款”的语义承诺，但只能保守拦截 GUI 输入；命令/URL 仍可能发送/付款；
 - 真正的最后防线仍然是用户逐次看确认卡片 + PIN；
 - 对“不能撤销”的对外发送/付款，这个缺口代价很高。
 
@@ -627,6 +643,8 @@ ReactAgent（agent/react_agent.py）
 
 ### R-11 成功判据不自动执行，假成功仍可能（中 / P2）
 
+> 2026-10-27 状态：**部分修复**。任务卡新增机器判据，任务结束由代码执行；工具失败/被拒绝/未确认不能算完成；业务语义仍无法自动证明。
+
 **代码事实：**
 
 - `TaskCard.success_criteria` 只拼进提示词；没有代码根据判据计算文件数/合计/行数。
@@ -666,6 +684,29 @@ ReactAgent（agent/react_agent.py）
 - 鉴权：如果暴露到局域网，必须加登录/反向代理/访问控制，最省事是只绑 `127.0.0.1`；
 - 供应链：`uv lock --check`、哈希校验、`pip-audit`、CI；
 - 配置：改 `yaml.safe_load`，并对配置做启动哈希校验。
+
+---
+
+### 4.13 2026-10-27 后续修复状态
+
+| ID | 状态 | 这次改了什么 | 仍未解决 |
+| --- | --- | --- | --- |
+| R-01 | **仍开放** | — | `.env` 仍可被 `read_text_file`/`search_text` 读取 |
+| R-02 | **已修复（写）** | `guard_path(..., for_write=True)` 禁止写项目源码/配置/提示词/脚本/`utils/`/`model/`/`memorys/`/`env_patch/`/`tests/`/`.venv/`/`.git/`/`logs/`；`check_command` 拒绝项目路径引用 | `data/` 输出目录仍可写 `.py`；同用户外部程序不受约束 |
+| R-03 | **部分修复** | `logs/` 已被项目写保护；`guard_execute` 写审计前有工具结果校验 | `log_approval` 仍写原始 actions；`read_text_file` 摘要可能落盘；日志可读、无 WORM |
+| R-04 | **已修复** | `guard_execute` 调用 `verify_approval_token`，校验 HMAC、10 分钟有效期、thread/batch/actions；假 token 被拒 | PIN 仍是同机第二主体；token 仍可能写进审计 |
+| R-05 | **已修复** | `copy_path`/`move_path` 检查目标后缀；复制/移动目录检查源目录树；`run_command` 拦截 copy/move 到可执行后缀 | 17 种后缀仍是黑名单；未列出的解释器类型需命令白名单 |
+| R-06 | **部分修复** | 任务卡禁止发送/提交/付款时，所有 GUI 输入类动作被保守拒绝 | `run_command`/`open_path` 仍无法语义判断发送/付款 |
+| R-07 | **仍开放** | — | 无网络出口白名单；只读模式仍可搜索/截图/读剪贴板 |
+| R-08 | **仍开放** | — | 默认工作区仍是 `~` + `.` |
+| R-09 | **仍开放** | — | 无 AppContainer/Job Object/沙箱 |
+| R-10 | **仍开放** | — | 截图/剪贴板/文件内容仍进云端模型 |
+| R-11 | **部分修复** | 任务卡新增机器判据，任务结束由 `criteria.py` 执行；工具失败/被拒绝/未确认不能算完成 | 判据只能证明文件/字段对上；GUI 仍只能人工确认 |
+| R-12 | **部分修复** | 任务卡必须启用；回滚边界写进界面/文档 | 月度费用上限、长命令急停、确认间隙锁、鉴权仍未解决 |
+
+**新增覆盖**：项目写保护、审批凭证绑定/假 token、复制/移动后缀/目录树、GUI 语义禁令、任务卡全覆盖、机器判据、回滚边界；用例从 47 条增至 67 条（P0 从 27 增至 47）。
+
+**仍未改变的核心结论**：这仍是应用层 L2 防护，不是沙箱；`.env` 读取、审计原文、网络出口、同机恶意程序仍是主要残余风险。
 
 ---
 
@@ -743,12 +784,12 @@ ReactAgent（agent/react_agent.py）
 
 | 要求 | 当前状态 | 诚实说明 |
 | --- | --- | --- |
-| P0-1 任务卡 | ✅ 已实现 | 缺字段不允许启用；没有卡时写操作被拒绝；但成功判据不自动执行，GUI “发送/付款”不受 forbidden 约束 |
+| P0-1 任务卡 | ✅ 已实现 | 每个新任务必须启用；缺字段不允许启动；写入/命令/打开类必须有机器判据；GUI “发送/付款”已保守拦截；只读任务可无机器判据，但只能标未确认 |
 | P0-2 只读模式 | ✅ 已实现 | 本地写/命令/桌面输入被拒；但 `.env` 可读、搜索/截图/剪贴板/联网仍可外发 |
-| P0-3 批次回滚 | ✅ 已实现 | 文件类写操作可整批撤销；命令/GUI 不在批次；永久删除不可逆；>10 MB 覆盖无备份 |
-| P0-4 第二主体 PIN | ✅ 已实现（同机） | PBKDF2 哈希 + HMAC；未设置 PIN 时 fail closed；但执行侧不验签，挡不住同用户恶意程序 |
-| P0-5 确定性验证 | ✅ 部分 | 5 类文件操作 + 命令退出码 + 复制哈希；GUI 标未确认；成功判据无自动评估器 |
-| P0-6 审计与回放 | ✅ 部分 | 字段/事件/批次回放齐全；但审批记录含原始参数、日志可被写、无 WORM |
+| P0-3 批次回滚 | ✅ 已实现 | 文件类写操作可整批撤销；命令/GUI 不在批次；永久删除不可逆；>10 MB 覆盖无备份；回滚边界已写进界面/文档 |
+| P0-4 第二主体 PIN | ✅ 已实现（同机） | PBKDF2 哈希 + HMAC；执行侧验签并绑定任务/批次/动作；未设置 PIN 时 fail closed；仍挡不住同用户恶意程序 |
+| P0-5 确定性验证 | ✅ 已实现 | 5 类文件操作 + 命令退出码 + 复制哈希；任务结束执行机器判据；GUI 标未确认；工具失败/被拒绝不能算完成 |
+| P0-6 审计与回放 | ✅ 部分 | 字段/事件/批次回放齐全；`logs/` 已禁止 Agent 写；但 `log_approval` 仍含原始参数、日志可读、无 WORM |
 | P0-7 预算与急停 | ✅ 部分 | 模型前硬停；但费用依赖 usage；正在执行的命令/等待不能中途杀 |
 | P0-8 单任务锁 | ✅ 部分 | 单机文件锁；确认间隙释放；直接调用工具可绕过 |
 
@@ -765,13 +806,13 @@ ReactAgent（agent/react_agent.py）
 | SEC-03 | 无资源限制 | **仍存在**；无 Job Object |
 | SEC-04 | TOCTOU | **仍存在**；路径校验与写之间有窗口 |
 | SEC-05 | 审计脱敏不完整 | **部分改善**（computer_use 定向脱敏），但审批记录/读结果/写内容仍可能泄露 |
-| SEC-06 | 审计可篡改 | **仍存在**；日志可被写工具改，无哈希链 |
+| SEC-06 | 审计可篡改 | **部分修复**；`logs/` 已禁止 Agent 工具写，但同用户其他程序仍可改，无哈希链 |
 | SEC-07 | 无日志轮转 | **仍存在** |
 | SEC-08 | 无速率限制 | **仍存在**；任务预算不是按时间窗限流 |
 | SEC-09 | 无输出审核 | **仍存在** |
 | SEC-10 | `thread_id` 无鉴权 | **仍存在**；单用户前提外高风险 |
 | SEC-11 | 依赖无哈希/签名 | **仍存在**；`uv.lock` 只锁版本 |
-| SEC-12 | 无安全测试 CI | **部分改善**（47 条离线用例），仍无 CI |
+| SEC-12 | 无安全测试 CI | **部分改善**（67 条离线用例），仍无 CI |
 | SEC-14 | 只能全部批准/拒绝 | **仍存在** |
 | SEC-15 | 工作区 ACL 未隔离 | **仍存在** |
 | SEC-18 | 不记录 HITL 拒绝 | **已改善**：`log_approval` 记录 approve/reject，工具错误也会进审计（但参数未脱敏） |
@@ -780,7 +821,7 @@ ReactAgent（agent/react_agent.py）
 | SEC-22 | 终端/脚本宿主黑名单可绕过 | **仍存在**；GUI 可绕过 `app_open` |
 | SEC-24 | 截图提示词注入 | **仍存在**；提示词隔离 + HITL，不是内容审核 |
 
-**旧报告说“没有自动化测试/CI”：** 现在有 47 条离线用例，但没有 CI；不要把“有测试”当成“有持续回归门禁”。
+**旧报告说“没有自动化测试/CI”：** 现在有 67 条离线用例，但没有 CI；不要把“有测试”当成“有持续回归门禁”。
 
 ---
 
@@ -854,15 +895,15 @@ ReactAgent（agent/react_agent.py）
 - 任务卡、只读、预算、急停、单任务锁把“任务失控”压下来了；
 - PIN 让“闭眼点确认”变难；
 - 审计字段和批次回放让事后排查比旧版清楚得多；
-- 47 条离线用例覆盖了守卫层的关键顺序（确认前不扣步、预算超限不调模型等）。
+- 67 条离线用例覆盖了守卫层的关键顺序（确认前不扣步、预算超限不调模型等）。
 
 **仍然不够的地方：**
 
 - 它**不是沙箱**；所有防护都在同一个用户权限下；
-- `.env`/项目源码/配置/日志/`.venv` 没有被真正隔离；
-- 审计/审批记录会写原始敏感内容，且日志可被 Agent 写；
-- 任务卡不能拦 GUI 的“发送/付款”；
-- 网络出口、截图/剪贴板、PIN 验签、命令白名单都还没有到“安全边界”级别。
+- `.env` 仍可被读工具读取；项目源码/配置/日志/虚拟环境已禁止**写**，但 `data/` 等输出目录仍可能写 `.py`；
+- 审计/审批记录仍可能写原始敏感内容；日志可读、无 WORM；
+- GUI 的“发送/付款”已做保守拦截，但 `run_command`/`open_path` 仍无法语义判断；
+- 网络出口、截图/剪贴板、命令白名单、系统级沙箱都还没有到“安全边界”级别；PIN 仍是同机第二主体。
 
 **一句话使用建议：**
 
