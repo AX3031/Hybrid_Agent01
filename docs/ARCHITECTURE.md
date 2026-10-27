@@ -166,7 +166,8 @@ flowchart LR
 | 层 | 组成 | 职责 | 关键约束 |
 | --- | --- | --- | --- |
 | L1 表现层 | `app.py`、`app_file_uploader.py` | 收集输入、展示流式输出、渲染高危操作确认卡片 | 不直接调用模型/工具 |
-| L2 编排层 | `ReactAgent`、`create_agent`、十个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，拦截高危操作 | 模型决定工具调用顺序 |
+| L2 编排层 | `ReactAgent`、`create_agent`、中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，拦截高危操作 | 模型决定工具调用顺序 |
+| L2.5 守卫层 | `agent/guard/` | 任务卡、只读、R0–R3 分级、批次回滚、预算急停、审计、单任务锁、PIN | 确定性检查，不依赖模型自觉 |
 | L3 工具层 | 21 个 `@tool` 函数（电脑操作 13 + 业务 7 + 桌面控制 1） | 把本机文件、进程、命令与桌面能力封装成模型可调用的工具 | 入参/返回需可序列化 |
 | L4 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 | 与工具实现解耦 |
 | L5 模型/存储层 | `ChatOpenAI`、PostgreSQL（可选）、本地文件系统 | 模型推理、会话持久化、文件读写 | 系统目录受保护，写操作需确认 |
@@ -182,8 +183,11 @@ flowchart LR
 6. **桌面控制复用 OmniPilot 工具层而不是嵌套 Agent**：只调用它的 screen/gui/clipboard/apps Tool 实现，不引入第二套 LLM 循环；否则会出现双倍模型成本、中间步骤不可见、确认粒度变粗的问题。所有桌面动作仍走本项目的 HITL、操作记录与审计日志。
 7. **绝对路径统一入口**：`utils/path_tool.get_abs_path()` 基于文件位置推导项目根，避免依赖当前工作目录。
 8. **安全兜底集中在 `safety.py`**：工作区校验、敏感目录、命令黑名单、可执行后缀、覆盖备份、回收区都是一处实现、所有工具复用。
-9. **OpenAI 兼容协议做模型适配层**：`ChatOpenAI` + `BASE_URL_DASHSCOPE` 可以较低成本切换供应商。
-10. **Windows 集成终端用启动参数放行激活脚本，而不是要求每人改系统策略**：`.vscode/settings.json` 给 PowerShell profile 加 `-ExecutionPolicy Bypass`，只在从本工作区打开的终端进程内生效、不写注册表；相比让每个协作者执行 `Set-ExecutionPolicy`（持久修改用户策略）影响面更小、且随仓库可复现。代价是该窗口内所有 `.ps1`（含未签名的下载脚本）不再拦截，属于**仓库携带的进程级放宽**，必须在 README 明示以便协作者知情。
+9. **守卫层与工具层分离**：任务卡、只读、批次、预算、审批都在 `agent/guard/` 里做确定性检查；工具只负责执行，不把安全判断散落在各工具内部。
+10. **停止与预算不靠提示词**：`guard_model` 在模型调用前短路，`guard_execute` 在工具执行前再检查；提示词只负责告知模型，不负责强制。
+11. **审批口令只存哈希**：PIN 用 PBKDF2 存哈希，审批结果用 HMAC 凭证；PIN 不进入提示词、工作区、对话历史与审计。
+12. **OpenAI 兼容协议做模型适配层**：`ChatOpenAI` + `BASE_URL_DASHSCOPE` 可以较低成本切换供应商。
+13. **Windows 集成终端用启动参数放行激活脚本，而不是要求每人改系统策略**：`.vscode/settings.json` 给 PowerShell profile 加 `-ExecutionPolicy Bypass`，只在从本工作区打开的终端进程内生效、不写注册表；相比让每个协作者执行 `Set-ExecutionPolicy`（持久修改用户策略）影响面更小、且随仓库可复现。代价是该窗口内所有 `.ps1`（含未签名的下载脚本）不再拦截，属于**仓库携带的进程级放宽**，必须在 README 明示以便协作者知情。
 
 ### 4.3 主链路与非主链路
 
@@ -215,8 +219,16 @@ project2/
 ├── .env                         # 本地密钥（git 忽略）
 ├── .vscode/settings.json        # ⚙️ IDE 配置：解释器 + 集成终端 Bypass（git 跟踪）
 ├── agent/
-│   ├── react_agent.py           # ✅ Agent 组装 + 流式/确认事件 + 会话自愈入口
+│   ├── react_agent.py           # ✅ Agent 组装 + 流式/确认事件 + 会话自愈 + 单任务锁
 │   ├── resilience.py            # ✅ 悬空 tool_call 的识别与修复
+│   ├── guard/                   # ✅ 小企业版 P0 守卫层
+│   │   ├── task_card.py         # ✅ 任务卡结构与校验
+│   │   ├── policy.py            # ✅ 只读 / 任务卡范围 / R0–R3 分级
+│   │   ├── state.py             # ✅ 预算 / 急停 / 会话快照 / 审批上下文
+│   │   ├── journal.py           # ✅ 批次日志与整批回滚
+│   │   ├── lock.py              # ✅ 单任务文件锁
+│   │   ├── approval.py          # ✅ PIN 哈希 / HMAC 凭证 / 审批目录保护
+│   │   └── middlewares.py       # ✅ 守卫层中间件
 │   └── tools/
 │       ├── os_tools.py          # ✅ 13 个电脑信息与文件操作工具
 │       ├── computer_use.py      # ✅ 1 个桌面控制工具（18 动作，复用 OmniPilot 工具层）
@@ -245,7 +257,10 @@ project2/
 ├── env_patch/                   # ⚙️ .pth + sitecustomize.py
 ├── scripts/
 │   ├── apply_env_patch.py       # ⚙️ 把 env_patch 装进 .venv（uv sync 后执行）
-│   └── verify_agent_resilience.py  # ✅ 离线验证 + 证据快照
+│   ├── verify_agent_resilience.py  # ✅ 离线验证 + 证据快照
+│   ├── verify_small_business.py    # ✅ 小企业版 P0 验证 + 证据
+│   └── setup_approval_pin.py       # ⚙️ 设置/查看审批口令（PIN）
+├── .agent_state/                # ⚙️ 守卫层状态：批次/会话快照/锁/急停（git 忽略）
 ├── tests/                       # ✅ unittest 用例（假模型，不联网）
 └── docs/                        # 速览、架构文档、改造复盘与 SVG
 ```
@@ -255,22 +270,31 @@ project2/
 | 模块 | 关键符号 | 职责 | 上游/下游 |
 | --- | --- | --- | --- |
 | `app.py` | `st.session_state`、`_render_events`、`_render_operations`、`_render_hitl_block` | 页面渲染；侧边栏展示工作区域；确认卡片用大白话解释；回答下方展示本次操作记录 | 上游：用户；下游：`ReactAgent`、`memory_factory` |
-| `agent/react_agent.py` | `ReactAgent.__init__`、`execute_stream`、`resume_stream`、`_repair_pending_tool_calls`、`AgentEvent`、`CONFIRM_TOOLS`、`TOOL_CALL_LIMIT` | 用 `create_agent` 组装模型、21 个工具、10 个中间件；提交新消息前先修复悬空工具调用；产出 text/interrupt/tool 三类事件 | 上游：`app.py`；下游：模型、工具、中间件、记忆工厂 |
+| `agent/react_agent.py` | `ReactAgent.__init__`、`execute_stream`、`resume_stream`、`_repair_pending_tool_calls`、`AgentEvent`、`CONFIRM_TOOLS`、`TOOL_CALL_LIMIT` | 用 `create_agent` 组装模型、21 个工具、中间件；提交新消息前修复悬空工具调用；用 `task_lock` 串行化任务；产出 text/interrupt/tool 三类事件 | 上游：`app.py`；下游：模型、工具、中间件、记忆工厂、守卫层 |
+| `agent/guard/task_card.py` | `TaskCard`、`ALL_ACTIONS`、`validate`、`to_prompt` | 任务卡数据结构、字段校验、转系统提示词 | 被 `state.py`、`policy.py`、`app.py` 使用 |
+| `agent/guard/policy.py` | `check_read_only`、`check_task_card`、`reversibility_of`、`requires_second_subject`、`preflight_reason` | 只读、动作类别、目录范围、R0–R3 分级 | 被 `middlewares.py`、`os_tools.py`、`app.py` 使用 |
+| `agent/guard/state.py` | `start_task`、`end_task`、`consume_step`、`budget_reason`、`request_stop`、`set_approval_context` | 任务运行时账本、预算、急停、会话快照、审批上下文 | 被中间件、工具、`ReactAgent`、`app.py` 使用 |
+| `agent/guard/journal.py` | `new_batch_id`、`record_*`、`rollback_batch`、`list_batches` | 批次 JSONL、整批回滚、批次摘要 | 被 `os_tools.py`、`state.py`、`app.py` 使用 |
+| `agent/guard/lock.py` | `task_lock`、`TaskBusyError` | 单任务文件锁、PID/时间过期清理 | 被 `ReactAgent` 使用 |
+| `agent/guard/approval.py` | `set_pin`、`verify_pin`、`sign_approval`、`is_protected_path` | PIN 哈希、HMAC 凭证、审批目录保护 | 被 `app.py`、`safety.py`、设置脚本使用 |
+| `agent/guard/middlewares.py` | `guard_model`、`guard_preflight`、`guard_execute`、`track_model_usage` | 把预算/只读/任务卡/计步接进 ReAct 循环 | 被 `ReactAgent` 使用 |
 | `agent/tools/computer_use.py` | `computer_use`、`READ_ONLY_ACTIONS`、`action_requires_confirmation`、`_BLOCKED_APPS`、`_PROTECTED_PROCESSES` | 单工具 18 动作，分发到 OmniPilot 的 screenshot/screen_size/locate_image/wait/鼠标/键盘/剪贴板/应用工具；截图以 content block 回传；危险应用与系统进程拦截 | 上游：模型 tool_call；下游：OmniPilot 工具类、`safety.guard_path` |
 | `agent/tools/os_tools.py` | 13 个 `@tool` | 本机信息、文件读写、搜索、进程与命令执行；所有路径操作先过 `guard_path`；软删除、覆盖备份、后缀拦截 | 上游：模型 tool_call；下游：`safety.py`、OS / 文件系统 / subprocess |
 | `agent/tools/safety.py` | `guard_path`、`is_sensitive`、`is_system_protected`、`check_command`、`check_write_suffix`、`backup_before_overwrite`、`move_to_trash`、`describe_operation`、`sanitize_tool_args`、`sanitize_tool_result`、`summarize_content_for_log` | 工作区域、敏感目录、命令黑名单、备份、回收区、日志脱敏与小白化解释 | 被 `os_tools.py`、`computer_use.py`、`middleware.py`、`app.py` 使用 |
 | `agent/tools/agent_tools.py` | `get_weather`、`get_user_location`、`get_user_id`、`get_current_month`、`fetch_external_data`、`fill_context_for_report`、`web_search_baidu` | 原有业务工具；CSV 懒加载缓存；百度联网搜索 | 上游：模型 tool_call；下游：CSV、百度 AI Search |
 | `agent/tools/middleware.py` | `monitor_tool`、`log_before_model`、`report_prompt_switch`、`pii_middleware_email`、`pii_middleware_phone`、`model_fallback_middleware`、`tool_error_middleware`、`tool_retry_middleware`、`RETRYABLE_TOOLS` | 工具日志/场景标记/结果校验、模型前日志、动态提示词、PII 脱敏、模型降级、异常转错误消息、幂等工具有限重试 | 被 `create_agent` 调用 |
-| `agent/tools/verification.py` | `verify_tool_outcome`、`enrich_tool_message`、`VerificationResult` | 核对写/建目录/移动/复制/删除的后置条件；校验不通过时把 ToolMessage 状态改为 error | 被 `middleware.monitor_tool` 调用 |
+| `agent/tools/verification.py` | `verify_tool_outcome`、`enrich_tool_message`、`VerificationResult` | 核对写/建目录/移动/复制/删除的后置条件、命令退出码；无法核对的动作标“未确认”；校验不通过时把 ToolMessage 状态改为 error | 被 `middleware.monitor_tool` 调用 |
 | `agent/resilience.py` | `find_unanswered_tool_calls`、`build_interrupted_tool_messages`、`repair_thread_state` | 识别“有调用没结果”的 tool_call，以 `as_node="tools"` 补占位 error ToolMessage，修复被污染的 thread | 被 `ReactAgent.execute_stream` 调用 |
 | `model/factory.py` | `BaseModelFactory`、`ChatModelFactory`、`chat_model` | 创建 Chat 单例；加载 `.env` | 被工具、Agent、中间件使用 |
 | `utils/config_handler.py` | `model_conf`、`prompts_conf`、`agent_conf` | 启动时读取三份 YAML | 被全项目引用 |
 | `utils/prompt_loader.py` | `load_system_prompts`、`load_report_prompts` | 按配置路径读取提示词文件 | 被 Agent/中间件使用 |
 | `utils/path_tool.py` | `get_project_root`、`get_abs_path` | 基于 `utils/` 位置推导项目根 | 被所有路径读取使用 |
 | `utils/logger_handler.py` | `get_logger`、`logger` | 控制台 INFO + 按日文件 DEBUG；幂等 Handler | 被工具/中间件使用 |
-| `utils/audit_logger.py` | `log_tool_call` | 把每次工具调用写入 `logs/audit_YYYYMMDD.jsonl` | 被 `middleware.monitor_tool` 使用 |
+| `utils/audit_logger.py` | `log_tool_call`、`log_task_start`、`log_task_end`、`log_approval`、`log_guard_event` | 把工具调用/任务/审批/急停/回滚写入 `logs/audit_YYYYMMDD.jsonl`，含 `batch_id/step_no/reversibility/approver/approval_token` | 被 `middleware.monitor_tool`、守卫层使用 |
 | `scripts/apply_env_patch.py` | `main`、`site_packages`、`render_pth` | 把 `env_patch/` 的 `.pth` 与 `sitecustomize.py` 幂等写入当前解释器的 `site-packages`（路径自报、`.pth` 相对路径改绝对）；`--check` 只校验不写 | 上游：开发者命令行为 `uv run python scripts/apply_env_patch.py`；下游：`.venv` 的 `site-packages`；不参与运行链路 |
 | `scripts/verify_agent_resilience.py` | `main`、`RecordingResult` | 跑 `tests/` 下的 unittest 用例，写出含环境/commit/逐条耗时的证据 JSON | 上游：开发者命令；下游：`docs/agent-resilience/evidence/`；不参与运行链路 |
+| `scripts/verify_small_business.py` | `main`、`RecordingResult` | 跑全部用例并单独统计 P0 守卫层用例，写出证据 JSON | 上游：开发者命令；下游：`docs/small-business-p0/evidence/`；不参与运行链路 |
+| `scripts/setup_approval_pin.py` | `main` | 交互式设置/查看审批口令，只保存哈希 | 上游：开发者命令；下游：审批目录；不参与运行链路 |
 | `memorys/memory_factory.py` | `MEMORY_MODE_LABELS`、`DEFAULT_MEMORY_MODE`、`create_checkpointer` | 记忆方式枚举与 checkpointer 工厂；PostgreSQL 分支延迟导入 | 被 `agent/react_agent.py` 使用 |
 | `memorys/file_checkpointer.py` | `FileCheckpointSaver`、`get_file_checkpointer` | 继承 `InMemorySaver`，把 storage/writes/blobs 原子写入 JSON；进程内单例 | 被 `memory_factory.py` 使用 |
 | `memorys/postgres_checkpointer.py` | `get_checkpointer`、`close_pool` | PostgreSQL checkpointer（连接池 + 幂等建表）；选择 PostgreSQL 模式时使用 | 被 `memory_factory.py` 使用 |
@@ -291,6 +315,11 @@ flowchart TB
     RA --> AT[agent/tools/agent_tools.py]
     RA --> MW[agent/tools/middleware.py]
     RA --> RS[agent/resilience.py]
+    RA --> GD[agent/guard/]
+    GD --> JN[journal.py 批次回滚]
+    GD --> LC[lock.py 单任务锁]
+    GD --> AP[approval.py PIN/凭证]
+    GD --> ST[state.py 预算/急停]
     RA --> HITL[HumanInTheLoopMiddleware]
     OT --> SF
     MW --> MF
@@ -515,6 +544,12 @@ AIMessage("已清理 3 个临时文件...")
 | 命令执行超时 | `run_command` 返回超时提示，不阻塞后续对话 |
 | `records.csv` 不存在 | `fetch_external_data` 抛 `FileNotFoundError` |
 | 用户拒绝高危操作 | 工具不执行，返回 `ToolMessage(status="error")`，模型据此说明未执行 |
+| 只读模式 | `guard_preflight` 在人工确认前返回 `[守卫层拒绝]`，不会弹出无意义的确认 |
+| 任务卡越界 | 动作类别/目录范围不匹配时返回 `status="error"`，模型不得绕过 |
+| 预算/急停 | `guard_model` 直接返回“任务已停止”的 AIMessage，不再调用模型；`guard_execute` 也不会执行工具 |
+| 单任务锁被占用 | `task_lock` 抛 `TaskBusyError`，界面显示“另一个任务正在操作本机”，不执行任何工具 |
+| 审批口令错误 | R2/R3 动作不执行，确认卡片保留，可重新输入 |
+| 回滚冲突/不可逆 | 回滚报告分列“已恢复/失败/不可逆”，绝不静默覆盖 |
 
 ---
 
@@ -531,6 +566,11 @@ AIMessage("已清理 3 个临时文件...")
 | 敏感读取（需确认） | `get_system_info`、`list_processes`、`computer_use` 的 `screenshot` / `clipboard_get` / `app_list` | 命中 `HumanInTheLoopMiddleware`，确认后执行 |
 | 有副作用（需确认） | `write_text_file`、`create_directory`、`move_path`、`copy_path`、`delete_path`、`run_command`、`open_path`，以及 `computer_use` 的鼠标/键盘/剪贴板写入/应用启停 | 命中 `HumanInTheLoopMiddleware`，挂起等待确认 |
 | 桌面只读（直接执行） | `computer_use` 的 `screen_size`、`locate_image`、`wait` | `when` 谓词放行，不弹确认 |
+
+守卫层在工具层之前再加两道闸门：
+
+- **只读模式**：`guard_preflight` 拒绝所有写工具/命令/程序启动/桌面输入，`guard_execute` 再拒绝一次；
+- **可逆性分级**：R0 只读 / R1 可撤销 / R2 难逆 / R3 不可逆；R2/R3 在确认卡片上要求输入 PIN。
 
 ### 7.2 工作区域
 
@@ -557,8 +597,9 @@ AIMessage("已清理 3 个临时文件...")
 2. `HumanInTheLoopMiddleware` 在 `after_model` 阶段检查 `interrupt_on`，命中后调用 `interrupt()` 挂起图。
 3. `ReactAgent._stream` 同时订阅 `values` 与 `updates`，从 `updates` 的 `__interrupt__` 中取出 `action_requests`，封装成 `AgentEvent(type="interrupt")`。
 4. `app.py` 把待确认操作写入 `st.session_state["pending_hitl"]`，用 `describe_operation` / `operation_risk` / `operation_target` 渲染小白化卡片；删除操作额外用 `measure_path` 统计影响范围。
-5. 用户点击「我确认，执行」或「不要执行」，`app.py` 调用 `agent.resume_stream(decisions, thread_id, pending_actions)`。
-6. `ReactAgent` 用 `Command(resume={"decisions": [...]})` 恢复图；批准则执行工具，拒绝则生成 `status="error"` 的 `ToolMessage`。
+5. 用户点击「我确认，执行」或「不要执行」；若待确认动作里有 R2/R3，还需输入审批口令（PIN）。
+6. `app.py` 校验 PIN（未设置则批准按钮禁用），通过后生成 HMAC 凭证并写审批审计；调用 `agent.resume_stream(decisions, thread_id, pending_actions, batch_id, task_card)`。
+7. `ReactAgent` 用 `Command(resume={"decisions": [...]})` 恢复图；恢复时沿用原批次号与预算，批准则执行工具，拒绝则生成 `status="error"` 的 `ToolMessage`。
 
 `pending_actions` 用于把恢复后执行的 `ToolMessage` 与之前被挂起的操作配对，保证操作记录完整。
 
@@ -574,10 +615,16 @@ AIMessage("已清理 3 个临时文件...")
 | 危险命令拦截 | 28 条正则黑名单（format、diskpart、del/erase、Remove-Item、rm、环境变量、编码命令、cd ..、copy con、下载/执行工具等） | `safety.check_command` |
 | 越界路径检查 | 提取命令中的盘符路径（支持 `\` 和 `/`），逐个子校验工作区 | `safety.check_command` |
 | 命令默认工作目录 | 未指定 `cwd` 时使用第一个工作区根，不继承应用启动目录 | `os_tools.run_command` |
-| 单轮次数上限 | `ToolCallLimitMiddleware(run_limit=20, exit_behavior="continue")` | `react_agent.py` |
+| 单轮次数上限 | 任务卡预算（默认 30 步/10 分钟/2 元）+ `ToolCallLimitMiddleware(run_limit=100, exit_behavior="continue")` 硬上限 | `guard/state.py`、`react_agent.py` |
 | 工具异常兜底 | `ToolErrorMiddleware` 把异常转成 `status="error"` 的 `ToolMessage`，循环不中断 | `middleware.tool_error_middleware` |
 | 幂等工具重试 | 只对只读工具、只对超时/断连/429/5xx 重试 2 次；副作用工具不自动重试 | `middleware.tool_retry_middleware` |
-| 结果校验 | 写/建目录/移动/复制/删除在写审计前核对后置条件，不通过则标 `error` | `verification.enrich_tool_message` |
+| 结果校验 | 写/建目录/移动/复制/删除在写审计前核对后置条件；`run_command` 校验退出码；`computer_use` / `open_path` 标“未确认” | `verification.enrich_tool_message` |
+| 任务卡范围 | 动作类别、输入范围、输出位置在预检阶段拒绝越界 | `guard/policy.py` |
+| 只读总开关 | 写/命令/程序启动/桌面输入全部拒绝；工具内部再兜底一次 | `guard/policy.py`、`os_tools.py` |
+| 批次回滚 | 写/移动/复制/删除/建目录/追加记入批次，可一键撤销整批 | `guard/journal.py` |
+| 预算与急停 | 步数/时长/费用超限短路；`STOP` 文件独立于模型 | `guard/state.py`、`guard/middlewares.py` |
+| 单任务锁 | `.agent_state/task.lock` 互斥；PID/时间过期自动清理 | `guard/lock.py` |
+| 第二主体 | R2/R3 需 PIN；只存 PBKDF2 哈希；审批凭证 HMAC 签名 | `guard/approval.py` |
 | 会话自愈 | 提交新消息前为上次中断的悬空 `tool_call` 补 `[未执行]` 占位结果 | `resilience.repair_thread_state` |
 | 桌面应用黑名单 | `app_open` 拒绝终端/脚本宿主/注册表/磁盘工具；`app_close` 拒绝系统关键进程 | `computer_use.py` |
 | 日志脱敏 | 截图 base64 不写日志；`type_text`/`clipboard_set` 的参数与 `clipboard_get` 的结果在审计日志中脱敏 | `safety.sanitize_tool_args` / `sanitize_tool_result` |
@@ -593,8 +640,10 @@ AIMessage("已清理 3 个临时文件...")
 **审计日志**：
 
 - `monitor_tool` 在每次工具执行后调用 `utils/audit_logger.log_tool_call`；
-- 写入 `logs/audit_YYYYMMDD.jsonl`，字段：`time / session_id / tool / args / status / result`；
+- 写入 `logs/audit_YYYYMMDD.jsonl`，字段：`time / event / trace_id / task_id / batch_id / step_no / session_id / tool / args / status / reversibility / approver / approval_token / result`；
 - `status` 不只看工具自述：结果校验未通过时记 `error`，内容里带 `[结果校验未通过]`；
+- 工具挂起等待确认时记 `status=interrupt`，不再把 `Command` 对象当成成功结果；
+- 任务开始/结束、审批、急停、回滚分别写 `task_start / task_end / approval / emergency_stop / budget_stop / rollback` 事件；
 - 写入失败静默，不影响主流程。
 
 ### 7.6 当前限制
@@ -606,7 +655,10 @@ AIMessage("已清理 3 个临时文件...")
 5. **确认后不可编辑参数**：`allowed_decisions` 只开放 approve/reject。
 6. **历史会话无操作记录**：checkpointer 只存 messages，不存 operations。
 7. **截图进入会话记忆**：base64 图片会写进短期/JSON/PostgreSQL 记忆，长对话体积会变大，当前无自动清理。
-8. **结果校验只覆盖文件类工具**：`run_command` 的退出码与 `computer_use` 的画面结果仍靠模型判断（见第 12 节 TD-30）。
+8. **结果校验已补命令退出码，但仍不覆盖 GUI**：`run_command` 现在校验退出码；`computer_use` / `open_path` 只能标“未确认”。
+9. **PIN 是同机第二主体**：挡不住同一 Windows 用户下的恶意程序；要更强隔离需独立用户/主机或带外审批。
+10. **批次日志不是 WORM**：`.agent_state/` 对 Agent 工具禁写，但同用户其他程序仍可改。
+11. **费用上限依赖 usage_metadata**：供应商不返回 usage 时只记录调用次数，不估算费用。
 
 ---
 
@@ -700,6 +752,12 @@ import agent.tools.middleware
 | `external_data_path` | `data/external/records.csv` | 外部使用记录 CSV 路径 |
 | `workspace_roots` | `["~", "."]` | 允许操作的目录；`~` 为用户目录，`.` 为项目根；可在界面修改并立即生效 |
 | `sensitive_dirs` | `[".ssh", ".gnupg", ".aws", ".azure", ".kube"]` | 工作区内仍拒绝访问的目录 |
+| `read_only` | `false` | 只读总开关；界面可切换，立即生效 |
+| `task_defaults.max_steps` | `30` | 任务卡未填步数时的默认上限 |
+| `task_defaults.max_minutes` | `10` | 任务卡未填时长时的默认上限 |
+| `task_defaults.max_cost_yuan` | `2.0` | 任务卡未填费用时的默认上限 |
+| `model_prices.input_per_million` | `2.0` | 费用估算的输入单价（元/百万 token） |
+| `model_prices.output_per_million` | `6.0` | 费用估算的输出单价（元/百万 token） |
 
 ### 9.4 `config/prompts.yml`
 
@@ -723,6 +781,9 @@ import agent.tools.middleware
 | `API_KEY_BAIDU` | `agent/tools/agent_tools.py` → `web_search_baidu` | 否 | 百度 AI Search 密钥；不配置时工具返回空字符串 |
 | `USE_POSTGRES_CHECKPOINTER` | `agent/react_agent.py` | 否 | 兼容配置：未显式传入 `memory_mode` 时，设为 `true` 默认使用 PostgreSQL |
 | `OMNIPILOT_HOME` | `agent/tools/computer_use.py` → OmniPilot `constants` | 否 | OmniPilot 的截图/会话目录；未设置时由 `computer_use` 在 import 前默认指向 `logs/omnipilot` |
+| `AGENT_STATE_DIR` | `agent/guard/config.py` | 否 | 守卫层状态目录（批次/会话快照/锁/STOP）；默认 `<项目根>/.agent_state` |
+| `AGENT_APPROVAL_DIR` | `agent/guard/approval.py` | 否 | 审批口令/密钥/审批记录目录；默认 `%PROGRAMDATA%\OSGuiAgent\approval` |
+| `AGENT_READ_ONLY` | `agent/guard/config.py` | 否 | 只读模式临时覆盖；`1/true/yes/on` 生效，优先级高于 `agent.yml` |
 
 ### 9.6 路径解析
 
@@ -738,17 +799,19 @@ get_abs_path("config/model.yml")  # -> <project_root>/config/model.yml
 
 | 变更 | 是否需要重启 |
 | --- | --- |
-| `config/*.yml` | 是（模块 import 时读取） |
+| `config/*.yml` | 大部分是（模块 import 时读取）；`read_only` / `task_defaults` / `model_prices` 每次使用时重读，改后立即生效 |
 | `.env` | 是（`load_dotenv` 在 import 时执行） |
 | `prompts/main_prompt.txt`、`prompts/report_prompt.txt` | 否（每次模型调用前重读） |
 | `model/factory.py` 中的模型参数 | 是 |
 | `OMNIPILOT_HOME` 环境变量 | 是（`computer_use` 在 import 时读取，且只在变量未设置时写入默认值） |
+| 审批口令（PIN） | 否（下次审批立即生效；`pin.json`/`key.bin` 每次校验重新读取） |
 | `.vscode/settings.json`（终端 profile） | 已开窗口不变，需**关闭并重开终端**（执行策略在 PowerShell 进程启动时读取） |
 
 ### 9.8 配置安全
 
 - `config_handler` 使用 `yaml.FullLoader`，比 `yaml.load` 安全，但仍建议改成 `yaml.safe_load`。
 - 配置中不要放密钥；密钥只放 `.env`。
+- **审批口令（PIN）不要放 `config/agent.yml` 或 `.env`**：它只存 PBKDF2 哈希在 `%PROGRAMDATA%\OSGuiAgent\approval`（或 `%LOCALAPPDATA%` 回退），由 `scripts/setup_approval_pin.py` 设置。
 - `.env` 已被 `.gitignore` 忽略；提交前用 `git status` 确认。
 
 ### 9.9 IDE 层配置与集成终端启动参数
@@ -782,6 +845,9 @@ get_abs_path("config/model.yml")  # -> <project_root>/config/model.yml
 | `logs/` | 运行日志 | `logger_handler` | 人/运维 | 不建议 |
 | `logs/omnipilot/screenshots/` | `computer_use` 的截图原图 | OmniPilot `Screenshot` 工具 | 模型（base64 回传）/人 | 不建议（可能含屏幕隐私内容） |
 | `memorys/chat_history/` | 文件型会话历史 | `FileCheckpointSaver` | 同左 | 不建议（含用户内容） |
+| `.agent_state/` | 守卫层状态：批次日志、会话快照、任务锁、`STOP` | `agent/guard/*` | 守卫层、侧边栏回放 | 不建议（含路径与操作记录） |
+| `docs/agent-resilience/evidence/`、`docs/small-business-p0/evidence/` | 离线验证证据 JSON | `scripts/verify_*.py` | 人/评审 | 建议（不含密钥与文件内容） |
+| `%PROGRAMDATA%\OSGuiAgent\approval\`（或 LocalAppData 回退） | PIN 哈希、HMAC 密钥、审批记录 | `scripts/setup_approval_pin.py`、`agent/guard/approval.py` | 审批校验 | **绝不入库** |
 | `config/`、`prompts/` | 配置与提示词 | 人工 | 全项目 | 建议 |
 | `env_patch/` | 环境补丁源文件 | 人工维护，`scripts/apply_env_patch.py` 自动安装到 `.venv` | 虚拟环境安装 | 建议 |
 | `.vscode/` | IDE 工作区配置（解释器、集成终端启动参数） | 人工 | VS Code / Qoder | 建议（会改变协作者的 IDE 行为，应走评审） |
@@ -808,6 +874,7 @@ git rm -r --cached logs memorys/chat_history
 ```gitignore
 logs/
 memorys/chat_history/
+.agent_state/
 ```
 
 ### 10.3 会话记忆模块
@@ -854,6 +921,10 @@ memorys/chat_history/
 | `tool_retry_middleware` | 每次重试由框架记录；最终失败交给错误中间件 | 同上 |
 | `resilience.repair_thread_state` | 补齐了几个悬空调用、工具名列表 | `agent/resilience.py` |
 | `log_before_model` | 消息数量、最后一条消息类型与内容（DEBUG；content block 已转文本、图片只留占位） | `agent/tools/middleware.py` |
+| `guard_preflight` / `guard_execute` | 被拒绝的工具名与原因（只读/任务卡/预算/急停） | `agent/guard/middlewares.py` |
+| `guard_model` | 预算/急停短路原因 | `agent/guard/middlewares.py` |
+| `journal.rollback_batch` | 批次号、恢复/失败/不可逆数量 | `agent/guard/journal.py` |
+| `approval` | 审批口令设置、签发凭证（不记录 PIN） | `agent/guard/approval.py` |
 
 工具自身的结构化日志（如 `computer_use` 的动作与参数）走同一个 logger，写入 `logs/agent_YYYYMMDD.log`。
 
@@ -873,6 +944,10 @@ memorys/chat_history/
 | 知识入库 | 单文件 `try/except`，失败记录 `exc_info=True` 后继续下一个 |
 | MD5 计算 | 文件不存在/不是文件/异常 → 记录错误并返回 `None` |
 | 工具执行 | `monitor_tool` 记录成功/失败；异常先由 `tool_retry_middleware` 判重试，再由 `tool_error_middleware` 转成错误 `ToolMessage`；写审计前做后置校验 |
+| 守卫层拒绝 | 返回 `status="error"` 的 `ToolMessage`，不抛异常、不执行工具；审计记一条 error |
+| 预算/急停 | `guard_model` 返回终止 AIMessage；`guard_execute` 拒绝工具；状态落盘到会话快照 |
+| 批次回滚 | 逐项撤销并汇总；单项失败不中断整批；回滚事件写审计 |
+| 审批口令 | 未设置 fail closed；错误 PIN 不执行；签名失败保留现场 |
 | 配置读取 | 缺键时记录错误并抛 `KeyError` |
 | 提示词读取 | 异常记录后重新抛出 |
 | 模型调用 | `ModelFallbackMiddleware` 在主模型失败时切换备用模型；仍失败则异常冒泡到 Streamlit |
@@ -896,8 +971,9 @@ memorys/chat_history/
 - 接入 LangSmith（`langsmith` 已是传递依赖）或 OpenTelemetry，做链路追踪。
 - 对工具失败率、确认拒绝率、平均响应时间做指标。
 - 记录 PII 脱敏命中次数（不记录原文）与模型降级次数、备用模型名、失败原因。
-- 已实现：`logs/audit_YYYYMMDD.jsonl` 记录每次工具调用（时间、会话、工具、参数、状态、结果摘要）。
+- 已实现：`logs/audit_YYYYMMDD.jsonl` 记录每次工具调用（时间、会话、工具、参数、状态、结果摘要）以及任务/审批/急停/回滚事件；含 `trace_id / batch_id / step_no / reversibility / approver`。
 - 已实现：图片 base64 不落盘；`computer_use` 的文字输入/剪贴板参数与结果定向脱敏（`sanitize_tool_args` / `sanitize_tool_result`）。
+- 已实现：任务快照 `STATE_DIR/sessions/*.json`（预算、步数、费用、停止原因），界面侧边栏可看批次回放。
 
 ---
 
@@ -923,7 +999,7 @@ memorys/chat_history/
 | TD-14 | P2 | `yaml.FullLoader` 非最安全 | `config_handler.py` | 恶意 YAML 有风险（本地配置场景较低） | 改用 `yaml.safe_load` |
 | TD-15 | ✅ 已修复 | `md5.text` 非原子、无并发保护 | RAG 子系统已整体移除 | — | — |
 | TD-16 | P2 | 运行产物被 Git 跟踪 | `git ls-files` 含 `__pycache__`、`logs`、`memorys/chat_history` | 仓库膨胀、泄漏用户内容 | 按 10.2 清理并补 `.gitignore` |
-| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（20 条 unittest 用例）+ `scripts/verify_agent_resilience.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
+| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（47 条 unittest 用例）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
 | TD-18 | ✅ 已修复 | 模型/Embedding 维度无迁移机制 | 向量库已移除；当前无 embedding 依赖 | — | 如后续重新引入检索，需做集合版本管理 |
 | TD-19 | P2 | 外部数据缓存不失效 | `external_data` 模块级 dict 只填充一次 | 运行中 CSV 更新不生效 | 加 TTL/文件 mtime 检查 |
 | TD-20 | ✅ 已修复 | 逐字符 `time.sleep(0.01)` | 已改为按事件块渲染，不再逐字符 sleep | 长回答不再阻塞请求线程 | — |
@@ -936,14 +1012,21 @@ memorys/chat_history/
 | TD-27 | P2 | 提示词注入/内容安全防护仍不完整 | 已有工作区、命令黑名单、HITL 与指令隔离；无输出审核 | 恶意内容仍可能诱导越权，但会被工作区/命令拦截挡住一部分 | 输出护栏、工具权限分级 |
 | TD-28 | P2 | 工作区不是安全沙箱 | 路径比较 + 命令黑名单/正则；不防符号链接逃逸与命令混淆 | 精心构造的输入仍可能越界 | 用容器/受限用户运行；引入命令解析器或白名单 |
 | TD-29 | P2 | 桌面控制靠截图 + 坐标，无控件树/OCR | `agent/tools/computer_use.py` 基于 OmniPilot 工具层 | 多显示器/DPI 缩放可能误点；截图 base64 会进入会话记忆 | 接入 UIA/OCR 定位；截图统一落盘 + 引用；敏感窗口遮罩 |
-| TD-30 | P3 | 结果校验只覆盖文件类工具 | `agent/tools/verification.py` 只核对写/建目录/移动/复制/删除 | `run_command` 退出码与 `computer_use` 画面结果仍靠模型判断 | 先定义退出码语义（哪些非 0 算失败），再评估截图文件核对 |
+| TD-30 | ✅ 部分修复 | 结果校验覆盖仍不完整 | `verification.py` 已补 `run_command` 退出码；`computer_use` / `open_path` 标“未确认” | GUI 画面结果仍无法自动核对 | 后续接 UIA/OCR 后再定义 GUI 后置条件；继续保留“未确认”出口 |
+| TD-31 | P1 | PIN 是“同机第二主体” | `agent/guard/approval.py`；同一 Windows 用户下恶意程序可读进程/记录键盘 | 挡不住蓄意攻击，只防误触与自点 | 升级为独立用户/主机或手机/IM 带外审批 |
+| TD-32 | P2 | 批次日志不是 WORM | `.agent_state/batches/*.jsonl` 追加写；Agent 工具禁写，但同用户其他程序可改 | 审计只能防误操作，不能防蓄意篡改 | 有合规要求时上 WORM/对象锁或外部 SIEM |
+| TD-33 | P2 | 费用上限依赖 usage_metadata | `agent/guard/state.py` 只在供应商返回 usage 时计费 | 不返回 usage 时费用上限不触发 | 换支持 usage 的供应商，或加保守的 token 估算并明确标注 |
+| TD-34 | P3 | 建目录回滚只删叶子目录 | `agent/guard/journal.py` 的 `_undo_mkdir` | 多级父目录可能残留空目录 | 记录完整创建链，倒序删除空目录 |
+| TD-35 | P2 | 单任务锁在等待确认间隙释放 | `agent/guard/lock.py` + `ReactAgent` 的流式边界 | 确认间隙另一个任务可插队；批次隔离但桌面资源可能冲突 | 需要强串行时改为跨确认持有锁，并加心跳防死锁 |
 
 ### 12.1 建议修复顺序
 
-1. **TD-05/TD-06**：把外部数据链路做可靠。
-2. **TD-02**：按部署形态开启 checkpointer，并验证会话隔离与清理。
-3. **TD-09/TD-13/TD-17**：做工程化收口（惰性初始化、依赖、测试）。
-4. **TD-08/TD-16/TD-27**：上线前完成安全、仓库与内容安全治理。
+1. **TD-31**：如果要把 PIN 当真正的安全边界，先升级为带外审批/独立用户。
+2. **TD-33/TD-35**：费用统计与锁语义，直接影响“出事时能不能刹车”。
+3. **TD-05/TD-06**：把外部数据链路做可靠。
+4. **TD-02**：按部署形态开启 checkpointer，并验证会话隔离与清理。
+5. **TD-09/TD-13/TD-17**：做工程化收口（惰性初始化、依赖、测试）。
+6. **TD-08/TD-16/TD-27/TD-32**：上线前完成安全、仓库、内容与审计治理。
 
 ---
 
@@ -991,7 +1074,8 @@ uv run -m agent.react_agent
 - 工具描述是模型选择工具的主要依据，写清“能力 + 入参 + 返回”。
 - 返回值尽量用 `str` 或可 JSON 序列化的结构；不要返回不可序列化对象。
 - 工具内部不要吞掉所有异常后返回空字符串而不记录日志；至少记录 warning/error。
-- 有副作用的工具必须加入 `agent/react_agent.py` 的 `CONFIRM_TOOLS`，由 `HumanInTheLoopMiddleware` 在调用前挂起确认。
+- 有副作用的工具必须加入 `agent/react_agent.py` 的 `CONFIRM_TOOLS`，由 `HumanInTheLoopMiddleware` 在调用前挂起确认；同时在 `agent/guard/policy.py` 的 `_ACTION_BY_TOOL` 与 `reversibility_of()` 登记动作类别和 R0–R3 等级。
+- 新增可撤销写操作时，在工具成功后调用 `agent/guard/journal.py` 对应的 `record_*`；否则该操作不会进入批次，不能整批回滚。
 - 单工具多动作时，参考 `computer_use`：在 `_HITL_CONFIG` 里用 `when` 谓词按 `args.action` 细分，只读动作放行、其余确认。
 - 返回图片时可以用 LangChain content block（`{"type": "image_url", ...}`）；注意日志里要用 `summarize_content_for_log` 脱敏 base64。
 - 长耗时工具考虑异步 `async def`，并设置超时。
@@ -1000,10 +1084,10 @@ uv run -m agent.react_agent
 ### 13.2 新增电脑操作工具
 
 1. 在 `agent/tools/os_tools.py` 用 `@tool(description=...)` 定义函数，返回字符串。
-2. 只读工具直接注册；有副作用的工具同时加入 `agent/react_agent.py` 的 `CONFIRM_TOOLS`，自动接入人工确认。
-3. 工具内部统一用 `_resolve()` 解析路径，写/删前调用 `_is_protected()`。
+2. 只读工具直接注册；有副作用的工具同时加入 `agent/react_agent.py` 的 `CONFIRM_TOOLS`，并在 `agent/guard/policy.py` 登记动作类别/可逆性。
+3. 工具内部统一用 `guard_path()` 解析路径；写/删成功后调用 `agent/guard/journal.py` 的 `record_*`，保证能整批回滚。
 4. 更新主提示词的工具清单与安全边界。
-5. 同步 README 能力表、本文 5.2/7、`architecture.svg` 工具层。
+5. 同步 README 能力表、本文 5.2/7、`docs/small-business-p0/`、`architecture.svg` 工具层。
 
 如果要新增桌面类动作，优先复用 `agent/tools/computer_use.py` 的分发结构：
 
@@ -1171,17 +1255,22 @@ tests/
 ├── fakes.py                    # ScriptedToolModel：假 ChatModel，支持 bind_tools
 ├── test_agent_resilience.py    # 异常→错误消息 / 重试分类 / 悬空调用修复
 ├── test_tool_verification.py   # 五类文件操作的后置校验
+├── test_small_business_guard.py # 任务卡/只读/批次回滚/预算急停/锁/PIN/审计/命令校验
 └── test_agent_tools.py         # 联网搜索失败语义 / 重试分类
 
 scripts/verify_agent_resilience.py   # 跑全部用例并输出证据 JSON
+scripts/verify_small_business.py     # 跑全部用例 + 统计 P0 守卫层用例 + 证据 JSON
 ```
+
+当前共 **47 条用例**（其中 P0 守卫层 27 条），全部通过。
 
 要点：
 
 - 假模型只实现 `bind_tools` + `_generate`，不联网、不花钱；用 `InMemorySaver` 隔离会话。
-- 测试文件操作时，临时目录建在项目根下（默认工作区内），用完即删。
+- 测试文件操作时，临时目录建在项目根下（默认工作区内），用完即删；守卫层用例用 `AGENT_STATE_DIR` / `AGENT_APPROVAL_DIR` 指向临时目录。
 - 断言直接看 `ToolMessage.status` 与消息内容，不依赖模型输出。
-- 后续补 CI 时，可直接调用 `scripts/verify_agent_resilience.py`，退出码已区分红绿。
+- `GuardMiddlewareOrderTest` 专门验证“等待确认不扣步、批准后才扣步、预算超限不调用模型”。
+- 后续补 CI 时，可直接调用 `scripts/verify_small_business.py`，退出码已区分红绿。
 
 ### 13.11 部署与运行
 
@@ -1281,12 +1370,17 @@ uv run streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 | Agent 组装 | `agent/react_agent.py` |
 | 工具实现 | `agent/tools/os_tools.py`（电脑操作）、`agent/tools/agent_tools.py`（业务）、`agent/tools/computer_use.py`（桌面控制，复用 OmniPilot 工具层） |
 | 安全策略 | `agent/tools/safety.py`（工作区 / 敏感目录 / 命令拦截 / 备份 / 回收区 / 人话解释 / 日志与审计脱敏 / 工作区域保存与重载） |
+| 守卫层 | `agent/guard/`（任务卡 / 只读 / R0–R3 / 批次回滚 / 预算急停 / 单任务锁 / PIN） |
+| 批次与回滚 | `agent/guard/journal.py` + `.agent_state/batches/` |
+| 预算与急停 | `agent/guard/state.py` + `agent/guard/middlewares.py` |
+| 审批口令 | `agent/guard/approval.py` + `scripts/setup_approval_pin.py` |
 | 审计日志 | `utils/audit_logger.py` |
 | 人工确认 | `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`（`computer_use` 用 `when` 谓词按动作细分） |
 | 中间件 | `agent/tools/middleware.py`（含 `tool_error_middleware` / `tool_retry_middleware`） |
 | 结果校验 | `agent/tools/verification.py` |
 | 会话自愈 | `agent/resilience.py` |
 | 离线验证 | `tests/` + `scripts/verify_agent_resilience.py`（证据在 `docs/agent-resilience/evidence/`） |
+| 小企业版 P0 验证 | `tests/test_small_business_guard.py` + `scripts/verify_small_business.py`（证据在 `docs/small-business-p0/evidence/`） |
 | 模型工厂 | `model/factory.py` |
 | 配置加载 | `utils/config_handler.py` |
 | 提示词加载 | `utils/prompt_loader.py` |
@@ -1325,6 +1419,13 @@ uv run -m agent.tools.computer_use
 
 # 冒烟：日志
 uv run -m utils.logger_handler
+
+# 小企业版 P0 验证（全部用例 + P0 统计 + 证据 JSON）
+uv run python scripts/verify_small_business.py
+
+# 审批口令：设置 / 查看
+uv run python scripts/setup_approval_pin.py          # 交互式设置
+uv run python scripts/setup_approval_pin.py --status # 查看是否已设置
 ```
 
 ### 16.3 文档维护清单
@@ -1335,6 +1436,7 @@ uv run -m utils.logger_handler
 | 新增桌面控制动作 | 本文 5.2、7、13.2；`docs/OS_TOOLS.md` 第 3/5.8–5.12/8.7/11.1 节；`prompts/main_prompt.txt`；README 能力表；`architecture.svg` 工具层 |
 | 新增/删除中间件 | 本文 5.2、8、11；PROJECT_OVERVIEW 第 3 节；`architecture.svg` 编排层 |
 | 修改工具失败/重试/结果校验/会话自愈 | 本文 6.5、7.4、11.1、11.3、12、13.10；`docs/agent-resilience/01`、`02`；`tests/`；README 能力表 |
+| 修改守卫层（任务卡/只读/批次/预算/急停/锁/PIN） | 本文 4.1、5.2、6.5、7、9.3、9.7、11、12、13.10；`docs/small-business-p0/00–08`；`tests/test_small_business_guard.py`；`scripts/verify_small_business.py`；README 能力表/配置速查/已知限制；PROJECT_OVERVIEW 第 3/4/5/7/8 节；`architecture.svg` 守卫层 |
 | 新增/修改测试用例或验证脚本 | 本文 13.10、16.1；`scripts/verify_agent_resilience.py`；`docs/agent-resilience/02`（用例数与结论）；README 4.5 与能力表 |
 | 新增配置项 | 本文 9；README 配置速查；PROJECT_OVERVIEW 第 8 节 |
 | 修改 IDE 工作区配置（`.vscode/`）/ 终端启动参数 | 本文 9.9、5.1、10.1、13.12；README 4.2.1、配置速查、目录树；PROJECT_OVERVIEW 第 6/7/8 节；`architecture.svg` 横切层说明；CHANGELOG 的 Security 分组（属于仓库携带的行为变更，需知情） |

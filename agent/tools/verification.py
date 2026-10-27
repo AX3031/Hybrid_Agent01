@@ -16,6 +16,8 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import hashlib
+import re
 from typing import Any, Callable
 
 from langchain_core.messages import ToolMessage
@@ -42,6 +44,7 @@ class VerificationResult:
 
     checked: bool
     ok: bool = True
+    confirmed: bool = True
     note: str = ""
 
     @classmethod
@@ -136,9 +139,34 @@ def _check_copy(args: dict, _result: str) -> VerificationResult:
         return VerificationResult.skip()
 
     actual_dst = _resolve_destination(src, dst)
-    if actual_dst.exists():
-        return VerificationResult(checked=True, ok=True, note=f"目标存在：{actual_dst}")
-    return VerificationResult(checked=True, ok=False, note=f"目标不存在：{actual_dst}")
+    if not actual_dst.exists():
+        return VerificationResult(checked=True, ok=False, note=f"目标不存在：{actual_dst}")
+
+    if src.is_file() and actual_dst.is_file():
+        try:
+            src_size = src.stat().st_size
+            dst_size = actual_dst.stat().st_size
+        except OSError as exc:
+            return VerificationResult(checked=True, ok=False, note=f"读取文件大小失败：{exc}")
+        if src_size != dst_size:
+            return VerificationResult(
+                checked=True,
+                ok=False,
+                note=f"复制后大小不一致（源 {src_size} 字节，目标 {dst_size} 字节）",
+            )
+        if src_size <= _MAX_READ_BYTES:
+            try:
+                src_hash = hashlib.sha256(src.read_bytes()).hexdigest()
+                dst_hash = hashlib.sha256(actual_dst.read_bytes()).hexdigest()
+            except OSError as exc:
+                return VerificationResult(checked=True, ok=False, note=f"回读文件失败：{exc}")
+            if src_hash != dst_hash:
+                return VerificationResult(
+                    checked=True,
+                    ok=False,
+                    note="复制后内容哈希不一致（可能复制到了旧文件或写入不完整）",
+                )
+    return VerificationResult(checked=True, ok=True, note=f"目标存在：{actual_dst}")
 
 
 def _check_delete(args: dict, _result: str) -> VerificationResult:
@@ -150,13 +178,56 @@ def _check_delete(args: dict, _result: str) -> VerificationResult:
     return VerificationResult(checked=True, ok=True, note="原路径已不存在（永久删除或已移入回收区）")
 
 
+def _check_command(_args: dict, result: str) -> VerificationResult:
+    """命令只做确定性检查：退出码非 0 就不能算成功。
+
+    退出码为 0 也不等于“关键产物已经产生”，所以只报“命令自身认为成功”；
+    真正重要的产物（文件数、行数、合计）仍需由后续工具核对。
+    """
+    match = re.search(r"退出码：(-?\d+)", result)
+    if not match:
+        return VerificationResult.skip()
+    code = int(match.group(1))
+    if code != 0:
+        return VerificationResult(
+            checked=True,
+            ok=False,
+            note=f"命令退出码为 {code}，不是成功状态；请先看标准错误再决定是否重试",
+        )
+    return VerificationResult(
+        checked=True,
+        ok=True,
+        note="命令退出码为 0（只代表命令自身认为成功，关键产物仍需另行核对）",
+    )
+
+
+def _unconfirmed(note: str) -> VerificationResult:
+    """无法用确定性判据核对的动作：不进 error，但必须标“未确认”。"""
+    return VerificationResult(checked=True, ok=True, confirmed=False, note=note)
+
+
+def _check_computer_use(_args: dict, _result: str) -> VerificationResult:
+    return _unconfirmed("桌面动作没有确定性判据，无法自动核对；请人工看一眼结果")
+
+
+def _check_open_path(_args: dict, _result: str) -> VerificationResult:
+    return _unconfirmed("打开程序/网址后世界是否变成预期，无法用文件系统判定；请人工确认")
+
+
 _CHECKERS: dict[str, Callable[[dict, str], VerificationResult]] = {
     "write_text_file": _check_write,
     "create_directory": _check_create_directory,
     "move_path": _check_move,
     "copy_path": _check_copy,
     "delete_path": _check_delete,
+    "run_command": _check_command,
+    "computer_use": _check_computer_use,
+    "open_path": _check_open_path,
 }
+
+# 这些工具的返回文案没有固定“成功前缀”，只要不是明显的失败就标未确认
+_NO_PREFIX_TOOLS = {"run_command", "computer_use", "open_path"}
+_FAILURE_MARKERS = ("失败", "已拒绝", "被拒绝", "不存在", "无法", "错误", "[守卫层拒绝]")
 
 
 def verify_tool_outcome(tool_name: str, tool_args: dict | None, result_content: Any) -> VerificationResult:
@@ -166,7 +237,11 @@ def verify_tool_outcome(tool_name: str, tool_args: dict | None, result_content: 
         return VerificationResult.skip()
     if not isinstance(result_content, str) or not result_content.strip():
         return VerificationResult.skip()
-    if not result_content.startswith(_SUCCESS_PREFIXES[tool_name]):
+    if tool_name not in _NO_PREFIX_TOOLS:
+        prefixes = _SUCCESS_PREFIXES.get(tool_name, ())
+        if not result_content.startswith(prefixes):
+            return VerificationResult.skip()
+    elif tool_name != "run_command" and any(marker in result_content[:200] for marker in _FAILURE_MARKERS):
         return VerificationResult.skip()
 
     try:
@@ -191,6 +266,9 @@ def enrich_tool_message(tool_name: str, tool_args: dict | None, result: Any) -> 
         return result
 
     if outcome.ok:
+        if not outcome.confirmed:
+            content = f"{result.content}\n\n[结果校验] 未确认：{outcome.note}"
+            return result.model_copy(update={"content": content})
         content = f"{result.content}\n\n[结果校验] 已核对：{outcome.note}"
         return result.model_copy(update={"content": content})
 

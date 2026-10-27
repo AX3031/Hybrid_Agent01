@@ -22,6 +22,8 @@ from agent.tools.safety import (
     summarize_content_for_log,
 )
 from agent.tools.verification import enrich_tool_message
+from agent.guard import policy
+from agent.guard import state as guard_state
 from langgraph.runtime import Runtime
 
 
@@ -47,12 +49,35 @@ def monitor_tool(
     safe_args = sanitize_tool_args(tool_name, tool_args)
     logger.info(f"[tool monitor]工具{tool_name}传入参数:{safe_args}")
 
+    task = guard_state.current()
+    batch_id = task.batch_id if task else ""
+    task_id = task.task_id if task else ""
+    step_no = task.steps if task else 0
+    reversibility = policy.reversibility_of(tool_name, tool_args)
+    approval = guard_state.approval_context(tool_name)
+
     try:
         result = handler(request)
         logger.info(f"[tool monitor]工具{tool_name}调用成功")
 
         if tool_name == 'fill_context_for_report':
             request.runtime.context["report"] = True
+
+        # 人工确认会让工具调用挂起：这一步不是“执行结果”，单独记一条 interrupt，
+        # 避免把等待确认误记成成功，也避免把 Command 对象当成工具结果。
+        if isinstance(result, Command):
+            log_tool_call(
+                session_id,
+                tool_name,
+                safe_args,
+                "等待人工确认",
+                "interrupt",
+                batch_id=batch_id,
+                task_id=task_id,
+                step_no=step_no,
+                reversibility=reversibility,
+            )
+            return result
 
         # 结果校验：按参数核对“声称成功”的后置条件，通不过就把状态改成 error
         verified = enrich_tool_message(tool_name, tool_args, result)
@@ -68,10 +93,28 @@ def monitor_tool(
             safe_args,
             sanitize_tool_result(tool_name, tool_args, content),
             str(status),
+            batch_id=batch_id,
+            task_id=task_id,
+            step_no=step_no,
+            reversibility=reversibility,
+            approver=approval.get("approver", "agent"),
+            approval_token=approval.get("token", ""),
         )
         return result
     except Exception as e:
-        log_tool_call(session_id, tool_name, safe_args, str(e), "error")
+        log_tool_call(
+            session_id,
+            tool_name,
+            safe_args,
+            str(e),
+            "error",
+            batch_id=batch_id,
+            task_id=task_id,
+            step_no=step_no,
+            reversibility=reversibility,
+            approver=approval.get("approver", "agent"),
+            approval_token=approval.get("token", ""),
+        )
         logger.error(f"工具{tool_name}调用失败，原因：{str(e)}")
         raise e
 
@@ -97,9 +140,15 @@ def log_before_model(
 def report_prompt_switch(request: ModelRequest):            # 动态切换提示词
     is_report = request.runtime.context.get("report",False)
     if is_report:           # 是报告生成场景，返回报告生成提示词内容
-        return load_report_prompts()
+        prompt = load_report_prompts()
+    else:
+        prompt = load_system_prompts()
 
-    return load_system_prompts()
+    # 任务卡启用时，把它追加在系统提示词末尾；卡里只有范围与判据，没有 PIN。
+    card = guard_state.current_card()
+    if card:
+        prompt = f"{prompt}\n\n{card.to_prompt()}"
+    return prompt
 
 
 from langchain.agents.middleware import PIIMiddleware, ModelFallbackMiddleware

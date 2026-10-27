@@ -17,7 +17,7 @@
 
   <g font-family="Microsoft YaHei, PingFang SC, Segoe UI, sans-serif">
     <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">本地电脑助手 Agent · 系统架构总览</text>
-    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 文件系统 / psutil / OmniPilot 工具层 · Streamlit UI</text>
+    <text x="48" y="80" font-size="15" fill="#64748b">LangChain 1.4 create_agent + init_chat_model（LangGraph）· 工作区域与人工确认 · 小企业版 P0 守卫层 · 文件系统 / psutil / OmniPilot 工具层 · Streamlit UI</text>
 
     <!-- Presentation layer -->
     <rect x="40" y="104" width="1120" height="88" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
@@ -50,7 +50,7 @@
     <rect x="864" y="264" width="240" height="44" rx="8" fill="#faf5ff" stroke="#d8b4fe"/>
     <text x="874" y="283" font-size="12" font-weight="600" fill="#0f172a">report_prompt_switch</text>
     <text x="874" y="299" font-size="10.5" fill="#64748b">按 context 切换系统提示词</text>
-    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ ToolError（异常转消息） · ToolRetry（幂等重试） · 结果校验 · 会话自愈 · PII · ModelFallback · HITL · ToolCallLimit（20 次/轮）</text>
+    <text x="436" y="318" font-size="10.5" fill="#5b21b6">+ 守卫层（任务卡 / 只读 / 批次回滚 / 预算急停 / PIN） · ToolError · ToolRetry · 结果校验 · 会话自愈 · PII · ModelFallback · HITL · ToolCallLimit（100 步兜底）</text>
 
     <path d="M310 178 V240" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M394 278 H420" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
@@ -122,7 +122,7 @@
     <rect x="676" y="746" width="280" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
     <text x="690" y="770" font-size="13.5" font-weight="700" fill="#0f172a">本地文件系统</text>
     <text x="690" y="790" font-size="10.5" fill="#475569">工作区域内读写</text>
-    <text x="690" y="806" font-size="10.5" fill="#64748b">.agent_trash / .agent_backup</text>
+    <text x="690" y="806" font-size="10.5" fill="#64748b">.agent_trash / .agent_backup / .agent_state</text>
     <rect x="982" y="746" width="150" height="72" rx="9" fill="#ffffff" stroke="#94a3b8" filter="url(#shadow)"/>
     <text x="994" y="770" font-size="13.5" font-weight="700" fill="#0f172a">记忆后端</text>
     <text x="994" y="790" font-size="10.5" fill="#475569">短期 / JSON</text>
@@ -132,7 +132,7 @@
     <path d="M560 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
     <path d="M800 682 V746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#arrow)"/>
 
-    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 28 条命令黑名单 · 20 次/轮 · 桌面应用/进程黑名单 · 审计 logs/audit_*.jsonl</text>
+    <text x="64" y="852" font-size="10.5" fill="#64748b">安全：工作区 workspace_roots · 敏感目录 · 28 条命令黑名单 · 任务预算（默认 30 步 / 100 步兜底）· 批次整批回滚 · 只读总开关 · R2/R3 需 PIN · 审计 logs/audit_*.jsonl</text>
     <text x="64" y="870" font-size="10.5" fill="#64748b">会话记忆在输入框左侧按钮切换：短期记忆（默认）/ 本地 JSON / PostgreSQL；侧边栏管理会话 ID。</text>
 
     <!-- Prompt switch (dashed) -->
@@ -186,6 +186,6 @@
     <text x="278" y="935" font-size="12" fill="#475569">配置 / 提示词 / 数据依赖</text>
 
     <text x="48" y="992" font-size="11" fill="#94a3b8">版本快照：Python 3.14 · langchain 1.4.0 · langgraph 1.2.11 · psutil 7.2.2 · streamlit 1.64.0 · omnipilot-agent 0.1.0</text>
-    <text x="1552" y="992" font-size="11" fill="#94a3b8" text-anchor="end">架构图 · 代码基线 2026-10-26</text>
+    <text x="1552" y="992" font-size="11" fill="#94a3b8" text-anchor="end">架构图 · 代码基线 2026-10-27</text>
   </g>
 </svg>

@@ -35,6 +35,8 @@ from agent.tools.safety import (
     move_to_trash,
     workspace_roots,
 )
+from agent.guard import journal
+from agent.guard.policy import check_read_only
 from utils.logger_handler import logger
 
 # 单次读取上限，避免误读超大文件把上下文撑爆
@@ -51,6 +53,11 @@ def _truncate(text: str, limit: int = _MAX_RESULT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n...（内容过长，已截断，共 {len(text)} 字符）"
+
+
+def _write_block(tool_name: str) -> str:
+    """只读模式在工具内部再挡一次，避免绕过中间件直接调用工具。"""
+    return check_read_only(tool_name)
 
 
 def _decode(raw: bytes) -> str:
@@ -285,6 +292,9 @@ def write_text_file(
     content: str,
     mode: Literal["write", "append"] = "write",
 ) -> str:
+    blocked = _write_block("write_text_file")
+    if blocked:
+        return blocked
     target, error = guard_path(path, for_write=True)
     if error:
         return error
@@ -295,7 +305,14 @@ def write_text_file(
     if target.exists() and target.is_dir():
         return f"目标是目录，不能写入文件：{target}"
 
-    backup_note = backup_before_overwrite(target) if mode == "write" else ""
+    existed = target.exists()
+    try:
+        size_before = target.stat().st_size if existed and target.is_file() else 0
+    except OSError:
+        size_before = 0
+    backup_note, backup_path = (
+        backup_before_overwrite(target) if mode == "write" else ("", None)
+    )
 
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -304,6 +321,7 @@ def write_text_file(
     except OSError as exc:
         return f"写入失败：{target}，{exc}"
 
+    journal.record_write(target, mode, existed, size_before, backup_path)
     logger.info(f"[write_text_file]已写入 {target}（mode={mode}）")
     action = "追加" if mode == "append" else "写入"
     return f"已{action} {len(content)} 个字符到 {target}{backup_note}"
@@ -311,19 +329,27 @@ def write_text_file(
 
 @tool(description="在工作区域内创建目录（有副作用，需用户确认）。path 为目录路径，已存在时直接返回成功。")
 def create_directory(path: str) -> str:
+    blocked = _write_block("create_directory")
+    if blocked:
+        return blocked
     target, error = guard_path(path, for_write=True)
     if error:
         return error
 
+    existed = target.exists()
     try:
         target.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return f"创建目录失败：{target}，{exc}"
+    journal.record_mkdir(target, existed)
     return f"目录已就绪：{target}"
 
 
 @tool(description="在工作区域内移动或重命名文件/目录（有副作用，需用户确认）。source 和 destination 都必须在工作区域内；目标为已存在目录时移动到该目录下。")
 def move_path(source: str, destination: str) -> str:
+    blocked = _write_block("move_path")
+    if blocked:
+        return blocked
     src, error = guard_path(source, for_write=True)
     if error:
         return error
@@ -343,12 +369,16 @@ def move_path(source: str, destination: str) -> str:
     except OSError as exc:
         return f"移动失败：{src} -> {dst}，{exc}"
 
+    journal.record_move(src, dst)
     logger.info(f"[move_path]已移动 {src} -> {dst}")
     return f"已移动：{src} -> {dst}"
 
 
 @tool(description="在工作区域内复制文件或目录（有副作用，需用户确认）。source 必须在工作区域内，destination 也必须在工作区域内；目标为已存在目录时复制到该目录下。")
 def copy_path(source: str, destination: str) -> str:
+    blocked = _write_block("copy_path")
+    if blocked:
+        return blocked
     src, error = guard_path(source)
     if error:
         return error
@@ -371,12 +401,16 @@ def copy_path(source: str, destination: str) -> str:
     except OSError as exc:
         return f"复制失败：{src} -> {dst}，{exc}"
 
+    journal.record_copy(src, dst)
     logger.info(f"[copy_path]已复制 {src} -> {dst}")
     return f"已复制：{src} -> {dst}"
 
 
 @tool(description="删除工作区域内的文件或目录（有副作用，需用户确认）。默认移到 .agent_trash 回收区，permanent=True 才永久删除；非空目录需要 recursive=True。")
 def delete_path(path: str, recursive: bool = False, permanent: bool = False) -> str:
+    blocked = _write_block("delete_path")
+    if blocked:
+        return blocked
     target, error = guard_path(path, for_write=True)
     if error:
         return error
@@ -391,6 +425,7 @@ def delete_path(path: str, recursive: bool = False, permanent: bool = False) -> 
             target.rmdir()
         except OSError as exc:
             return f"删除失败（目录可能非空，需要 recursive=True）：{target}，{exc}"
+        journal.record_rmdir(target)
         logger.info(f"[delete_path]已删除空目录 {target}")
         return f"已删除空目录：{target}"
 
@@ -402,18 +437,23 @@ def delete_path(path: str, recursive: bool = False, permanent: bool = False) -> 
                 target.unlink()
         except OSError as exc:
             return f"永久删除失败：{target}，{exc}"
+        journal.record_permanent_delete(target)
         logger.info(f"[delete_path]已永久删除 {target}")
         return f"已永久删除：{target}（不可恢复）"
 
     dest, trash_error = move_to_trash(target)
     if trash_error:
         return trash_error
+    journal.record_trash(target, dest)
     logger.info(f"[delete_path]已移入回收区 {target} -> {dest}")
     return f"已移到回收区：{dest}（如需彻底删除，请显式使用 permanent=True）"
 
 
 @tool(description="在工作区域内执行系统命令（有副作用，需用户确认）。command 为命令字符串，cwd 为工作目录（必须在工作区域内），timeout 为超时秒数；危险命令和工作区外路径会被拒绝。")
 def run_command(command: str, cwd: str | None = None, timeout: int = 60) -> str:
+    blocked = _write_block("run_command")
+    if blocked:
+        return blocked
     command_error = check_command(command)
     if command_error:
         return command_error
@@ -457,6 +497,9 @@ def run_command(command: str, cwd: str | None = None, timeout: int = 60) -> str:
 
 @tool(description="用系统默认程序打开工作区域内的文件/目录，或打开网址（有副作用，需用户确认）。path 为文件路径、目录路径或 http(s) URL。")
 def open_path(path: str) -> str:
+    blocked = _write_block("open_path")
+    if blocked:
+        return blocked
     text = str(path).strip().strip('"').strip("'")
     if text.startswith(("http://", "https://")):
         target = text

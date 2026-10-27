@@ -28,9 +28,13 @@ logs/
 # 会话记忆（含用户内容）
 memorys/chat_history/
 
-# 回收区与备份（默认在用户目录；工作区设为项目根时会出现在这里）
+# 回收区、备份与守卫层状态（批次/会话快照/锁/急停）
 .agent_trash/
 .agent_backup/
+.agent_state/
+
+# 测试临时目录
+_agent_verify_*/
 
 # 临时文件
 *.tmp
@@ -39,6 +43,7 @@ memorys/chat_history/
 
 # 本地需求文档（不纳入版本管理）
 对OS_GUI_AGNET的初步要求.md
+OS_GUI_AGENT_小企业版实施要求.md
 
 # 操作系统杂物
 .DS_Store

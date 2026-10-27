@@ -8,6 +8,18 @@
 
 ### Added
 
+- `agent/guard/`：新增小企业版 P0 守卫层（任务卡、只读、R0–R3 分级、批次回滚、预算急停、审计、单任务锁、第二主体 PIN）。
+- `agent/guard/task_card.py` + `app.py` 侧边栏「任务卡」：任务卡表单、字段校验、转系统提示词、缺成功判据不允许启动；任务卡快照写入批次与审计。
+- `agent/guard/journal.py` + 侧边栏「批次与回滚」：每个任务一个批次号，写入/覆盖/追加/建目录/移动/复制/删除/永久删除均记录；支持一键整批回滚并分列“已恢复/失败/不可逆”。
+- `agent/guard/state.py` + `agent/guard/middlewares.py`：步数/时长/费用预算、`STOP` 急停文件、`guard_model` 模型前短路、`guard_execute` 确认后计步、`track_model_usage` 费用记账。
+- `agent/guard/lock.py`：单任务文件锁（`.agent_state/task.lock`），含 PID/6 小时过期清理与 `TaskBusyError`。
+- `agent/guard/approval.py` + `scripts/setup_approval_pin.py`：第二主体审批口令，PBKDF2 只存哈希、HMAC 审批凭证、审批目录对 Agent 工具禁读写；R2/R3 动作在确认卡片上要求 PIN，未设置时 fail closed。
+- `agent/guard/policy.py`：只读总开关、任务卡动作/目录范围、可逆性 R0–R3、`requires_second_subject`、`requires_task_card`、`preflight_reason`；没有任务卡时拒绝会修改本机的工具。
+- `utils/audit_logger.py`：新增 `log_task_start` / `log_task_end` / `log_approval` / `log_guard_event`；`log_tool_call` 新增 `trace_id / task_id / batch_id / step_no / reversibility / approver / approval_token`。
+- `tests/test_small_business_guard.py`：新增 27 条 P0 守卫层用例（批次回滚、只读、任务卡、预算急停、锁、PIN、审计、退出码/复制哈希校验、中间件顺序、R2 无 PIN 凭证被拒）。
+- `scripts/verify_small_business.py`：跑全部用例、单独统计 P0 用例并输出 `docs/small-business-p0/evidence/verify-*.json`。
+- `docs/small-business-p0/00–08`：进度备忘录 + 七块能力的入门讲解 + 交付复盘与验收清单。
+
 - `agent/tools/middleware.py`：新增 `tool_error_middleware`（`ToolErrorMiddleware`）—— 工具抛异常时转成 `ToolMessage(status="error")`，内容以「工具 xxx 执行失败」开头，ReAct 循环不再被整轮打断；异常类型与一句话原因写日志，堆栈不发给模型。
 - `agent/tools/middleware.py`：新增 `tool_retry_middleware`（`ToolRetryMiddleware`）—— 只对 `RETRYABLE_TOOLS`（幂等/只读工具）重试 2 次，且只重试超时/断连/429/5xx；`on_failure="error"` 把最终失败交给错误中间件。写文件、删除、移动复制、命令、键鼠操作不自动重试。
 - `agent/tools/verification.py`：新增结果校验 —— 写文件、建目录、移动、复制、删除在写审计前核对后置条件（含 Windows 换行归一化）；校验不通过时把 `ToolMessage.status` 改为 `error` 并附「[结果校验未通过]」。
@@ -41,7 +53,7 @@
 - `app.py`：新增「本次操作记录」面板与大白话确认卡片（目标、风险、影响范围）；侧边栏展示工作区域；按钮改为「我确认，执行 / 不要执行」。
 - 删除回收区：`delete_path` 默认移到 `.agent_trash`，`permanent=True` 才永久删除。
 - 覆盖前自动备份到 `.agent_backup`（10MB 上限）。
-- `ToolCallLimitMiddleware`：单轮最多 20 次工具调用。
+- （历史）`ToolCallLimitMiddleware` 最初为单轮最多 20 次工具调用；现已由任务卡/守卫层预算替代（默认 30 步，100 步硬上限），见上方 Changed。
 - `app.py`：输入框左侧新增「工作区域」弹层，可查看当前范围、每行输入一个绝对路径、保存后立即生效并写回 `config/agent.yml`。
 - `agent/tools/safety.py`：新增 `validate_workspace_inputs` / `save_workspace_roots` / `reload_workspace_roots`；输入校验覆盖绝对路径、盘符根、系统保护目录。
 - `get_system_info`、`list_processes` 加入确认清单，并补充“会读取设备标识/正在使用的软件”的风险说明。
@@ -51,7 +63,19 @@
 
 ### Changed
 
-- 中间件从 8 个增至 10 个；`create_agent` 的 `middleware` 顺序为 `model_fallback → pii_email → pii_phone → tool_error → tool_retry → monitor_tool → log_before_model → report_prompt_switch → hitl → tool_limit`（列表越靠前越外层）。
+- 中间件列表新增 `guard_model`（模型前预算/急停短路）、`guard_preflight`（人工确认前只读/任务卡/预算检查）、`guard_execute`（确认后计步）、`track_model_usage`（token/费用记账）；顺序为 `model_fallback → guard_model → pii → tool_error → tool_retry → monitor_tool → guard_preflight → log_before_model → report_prompt_switch → hitl → guard_execute → tool_limit → track_model_usage`。
+- `ReactAgent.execute_stream` / `resume_stream`：新增任务卡参数、单任务锁、任务运行时启动/恢复/结束；`AgentEvent` 的 interrupt 事件新带 `batch_id` 与 `task_card` 快照。
+- 工具调用硬上限从 20 次/轮改为 100 次/轮兜底；每任务实际预算由任务卡/守卫层控制（默认 30 步 / 10 分钟 / 2 元）。
+- `agent/tools/os_tools.py`：写工具在只读模式下直接拒绝；成功后写批次记录（覆盖备份路径、追加前大小、移动/复制目标、回收区路径）。
+- `agent/tools/verification.py`：新增 `run_command` 退出码校验；`copy_path` 校验文件大小与 SHA-256；`computer_use` / `open_path` 返回“未确认”而非假装成功；`VerificationResult` 新增 `confirmed` 字段。
+- `agent/tools/middleware.py`：`monitor_tool` 记录批次/步数/可逆性/审批人；工具挂起等待确认时记 `status=interrupt`，不再把 `Command` 对象当成工具结果。
+- `agent/tools/safety.py`：`backup_before_overwrite` 返回 `（说明, 备份路径）`；`guard_path` 拒绝审批目录与 `.agent_state`/`.agent_backup`/`.agent_trash` 写入；`check_command` 拒绝引用这些目录；路径比较改为 `realpath`，兼容 Windows 8.3 短路径。
+- `config/agent.yml`：新增 `read_only`、`task_defaults`、`model_prices`。
+- `prompts/main_prompt.txt`：新增只读、任务卡、预算、批次回滚、未确认、急停六类规则（第 19–24 条）；单轮 20 次改为任务预算。
+- `app.py`：侧边栏新增「安全开关」「任务卡」「批次与回滚」；确认卡片显示可逆性等级，R2/R3 要求 PIN；新会话清除任务卡；只读模式顶部提示。
+- 文档同步：`README.md`、`docs/PROJECT_OVERVIEW.md`、`docs/ARCHITECTURE.md`、`docs/OS_TOOLS.md`、`docs/architecture.svg`、`AGENTS.md`、`docs/small-business-p0/`。
+
+- （历史）中间件从 8 个增至 10 个；后续守卫层改造又增加 `guard_model` / `guard_preflight` / `guard_execute` / `track_model_usage`，当前顺序见上方最新 Changed 条目。
 - `ReactAgent.execute_stream` 在提交新消息前先调用 `resilience.repair_thread_state`，自动修复上次中断留下的悬空工具调用。
 - `monitor_tool` 在写审计前调用 `verification.enrich_tool_message`，审计与操作记录的状态开始反映“结果校验”的结论。
 - `web_search_baidu` 失败语义：缺失 `API_KEY_BAIDU` 抛可读 `RuntimeError`；HTTP/网络错误改为 `raise`（由重试/错误中间件处理）；搜索成功但无结果返回可读说明，不再返回空字符串；超时改为 `(5, 30)` 连接/读取分离。
@@ -75,7 +99,7 @@
 - `agent/tools/os_tools.py`：所有路径工具接入 `guard_path`；`delete_path` 增加 `permanent`；`write_text_file` 增加后缀检查与覆盖备份；`run_command` 增加命令黑名单与越界路径检查。
 - `agent/react_agent.py`：新增 `ToolCallLimitMiddleware`、`AgentEvent(type="tool")`、`resume_stream(pending_actions=...)`；中间件从 7 个增为 8 个。
 - `agent/tools/middleware.py`：`monitor_tool` 修正日志时序，并接入审计日志。
-- `prompts/main_prompt.txt`：补充工作区域、回收区、备份、可执行后缀、命令拦截、20 次上限、操作留痕等安全规则。
+- `prompts/main_prompt.txt`：补充工作区域、回收区、备份、可执行后缀、命令拦截、任务预算（原 20 次上限）、操作留痕等安全规则。
 - 文档同步：`docs/OS_TOOLS.md` 重写为「功能与安全说明」；`README.md` 能力表/配置速查/限制；`ARCHITECTURE.md` 7/9.3/10.4/11.5/12/16.1；`PROJECT_OVERVIEW.md` 5/6/7；`architecture.svg` 安全节点；`AGENTS.md` 安全策略同步规则。
 - `CONFIRM_TOOLS` 从 7 个增加到 9 个；`get_system_info`、`list_processes` 从“直接执行”改为“确认后执行”。
 - `docs/OS_TOOLS.md` 第 2 节扩充为 2.1–2.8：为什么需要工作区域、默认范围、查看方式、两种修改方式、允许/拒绝例子、填写规则、常见错误、敏感目录。
@@ -90,6 +114,13 @@
 - `prompts/main_prompt.txt` / `report_prompt.txt` 中的知识库/RAG 文案。
 
 ### Fixed
+
+- 修复“退出码非 0 被当成成功”：`run_command` 现在有确定性校验，非 0 标 `[结果校验未通过]`。
+- 修复工具挂起等待确认时 `Command` 对象可能被审计当成工具结果的问题；现在单独记 `status=interrupt`。
+- 修复 Windows 8.3 短路径（如 `ADMINI~1`）导致工作区比较误判的问题（`_norm` / `_is_under` 改用 `realpath`）。
+- 修复 Agent 可写 `.agent_state` / `.agent_backup` / `.agent_trash` 的隐患；这些目录现在只允许读，禁止工具写入。
+- 修复 Agent 可能读取审批口令目录的隐患；`guard_path` 与 `check_command` 均拒绝该目录。
+- 修复文档中“结果校验只覆盖文件类工具”的过期描述（已补退出码与未确认标记）。
 
 - 工具抛异常不再打断整轮：异常先由重试中间件判断，重试耗尽后转成 `status=error` 的 `ToolMessage`，模型能继续换参数/换工具/如实说明（此前异常一路冒泡，`app.py` 只显示“生成回答失败”）。
 - 修复中断后会话被污染：工具崩溃时 checkpoint 会留下没有 `ToolMessage` 的 `tool_calls`、`next` 停在 `tools`，下一次提问把脏历史发给模型；现在提交新消息前自动补占位结果。
@@ -112,6 +143,12 @@
 - 工作区域不允许设置为敏感目录（`.ssh`、`.aws` 等）。
 
 ### Security
+
+- 第二主体审批：R2/R3 动作需要人工持有的 PIN；PIN 只存 PBKDF2 哈希，审批结果用 HMAC 凭证；PIN 不进入提示词、工作区、对话历史与审计。
+- 审批凭据目录默认放在 `%PROGRAMDATA%\OSGuiAgent\approval`（不可写时回退 `%LOCALAPPDATA%`），对 Agent 工具禁读写；命令中出现该路径直接拒绝。
+- 任务卡范围与只读开关均在代码层强制执行，不依赖提示词；越界调用返回 `status=error` 的 ToolMessage。
+- 批次日志与任务快照放在 `.agent_state/`，对 Agent 工具禁写；回滚冲突不覆盖现有文件，永久删除明确报“不可逆”。
+- 急停使用 `STATE_DIR/STOP` 文件，独立于模型；预算超限在模型调用前短路。
 
 - `agent/tools/computer_use.py`：`app_open` 拒绝终端/脚本宿主/注册表/磁盘/策略工具（cmd、PowerShell、Windows Terminal、WSL、cscript、mshta、regedit、diskpart、bcdedit 等），并拒绝应用名与启动参数中的 cmd 元字符（`&`、竖线、重定向、`^`、`%`、括号、引号、分号），阻断“打开终端再敲命令”绕过 `run_command` 黑名单的链路。
 - `agent/tools/computer_use.py`：`app_close` 拒绝关闭系统关键进程（explorer、svchost、lsass、winlogon 等），并覆盖 `expl`、`svch` 这类缩写；`locate_image` 的模板图片与路径型 `app_open` 强制走 `guard_path`。

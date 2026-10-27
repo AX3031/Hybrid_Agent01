@@ -7,6 +7,22 @@ workspace_roots:
   - "~"
   - "."
 
+# 只读总开关：true 时拒绝所有写操作（文件写入/移动/删除/命令/桌面输入）。
+# 界面侧边栏也可以切换，保存后立即生效。
+read_only: false
+
+# 任务卡未填写预算时的默认上限（界面可逐任务调整）。
+task_defaults:
+  max_steps: 30
+  max_minutes: 10
+  max_cost_yuan: 2.0
+
+# 费用上限估算用的模型单价（元 / 百万 token），请按自己的账单改。
+# 只有供应商返回 usage_metadata 时才计费；不返回时只记录调用次数。
+model_prices:
+  input_per_million: 2.0
+  output_per_million: 6.0
+
 # 工作区内仍然禁止访问的敏感目录（按目录名匹配，不区分大小写）。
 sensitive_dirs:
   - ".ssh"

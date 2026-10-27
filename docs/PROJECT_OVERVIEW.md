@@ -2,7 +2,7 @@
 
 > 用途：给人和 AI 的快速上下文。命令与环境见 [README](../README.md)；深入设计见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 >
-> 代码基线：`2026-10-26` 工作区快照。
+> 代码基线：`2026-10-27` 工作区快照（含小企业版 P0 守卫层）。
 >
 > 配套图：[architecture.svg](architecture.svg)（分层架构）；AI 阅读约定见 [AGENTS.md](../AGENTS.md)。
 
@@ -10,7 +10,7 @@
 
 ## 1. 一句话
 
-基于 **LangChain 1.4 `create_agent`（LangGraph）** 的本地电脑助手原型：Streamlit UI + 工具调用 + 文件系统/进程/命令操作 + 截屏与鼠标键盘/窗口控制 + 高危操作人工确认，支持短期/本地 JSON/PostgreSQL 三种会话记忆。
+基于 **LangChain 1.4 `create_agent`（LangGraph）** 的本地电脑助手原型：Streamlit UI + 工具调用 + 文件系统/进程/命令操作 + 截屏与鼠标键盘/窗口控制 + 高危操作人工确认，支持短期/本地 JSON/PostgreSQL 三种会话记忆；并接入小企业版 P0 守卫层（任务卡、只读、批次回滚、预算急停、审计回放、单任务锁、PIN）。
 
 ## 2. 技术栈
 
@@ -29,7 +29,8 @@
 | 层 | 关键组件 | 职责 |
 | --- | --- | --- |
 | 表现层 | `app.py` | 收集输入、展示流式输出、渲染高危操作确认卡片 |
-| 编排层 | `ReactAgent` + 10 个中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，兜底工具异常与结果校验，拦截高危操作 |
+| 编排层 | `ReactAgent` + 中间件 | 组装模型/工具/提示词，驱动 ReAct 循环，兜底工具异常与结果校验，拦截高危操作 |
+| 守卫层 | `agent/guard/` | 任务卡、只读、R0–R3 分级、批次回滚、预算急停、审计、单任务锁、PIN |
 | 工具层 | `os_tools`（13 个）+ `agent_tools`（7 个）+ `computer_use`（1 个，18 动作） | 本机信息、文件读写/搜索、进程、命令、业务查询、桌面控制 |
 | 服务层 | `PromptLoader`、`HumanInTheLoopMiddleware` | 提示词加载、人工审批 |
 | 模型/存储 | `ChatOpenAI`、记忆后端、本地文件系统 | 推理、上下文持久化、文件读写 |
@@ -37,12 +38,12 @@
 
 ## 4. 一次请求怎么走
 
-1. `app.py` 接收输入，调用 `ReactAgent.execute_stream(query, thread_id)`。
-2. `create_agent` 构建 LangGraph，传入 `context={"report": False}`、`config={"thread_id": ...}`；提交前先用 `resilience.repair_thread_state` 修复上次中断留下的悬空工具调用。
-3. 中间件在模型调用外层做模型降级与 PII 脱敏，并在调用前记录日志、选择系统提示词。
-4. 模型返回 `tool_calls`：只读工具直接执行；工具异常先按规则重试，重试耗尽后转成 `status=error` 的 `ToolMessage`；文件类操作在写审计前做结果校验；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；`computer_use` 由 `when` 谓词按 `action` 细分（3 个只读动作放行，其余确认）。
-5. 挂起时 `ReactAgent` 产出 `AgentEvent(type="interrupt")`，`app.py` 渲染确认卡片；用户批准后用 `Command(resume=...)` 继续。
-6. 循环直到模型返回最终 `AIMessage`；`app.py` 用 `_render_events` 渲染文本并 `st.rerun()`。
+1. `app.py` 接收输入；若启用了任务卡/只读/急停，先读当前设置。
+2. `ReactAgent.execute_stream(query, thread_id, task_card)` 先取单任务文件锁，再创建任务运行时（批次号、预算、任务卡快照），然后用 `resilience.repair_thread_state` 修复上次中断留下的悬空工具调用。
+3. `create_agent` 构建 LangGraph；中间件顺序：`guard_model`（预算/急停短路）→ 模型降级/PII → 错误兜底/重试 → `monitor_tool`（审计）→ `guard_preflight`（只读/任务卡/预算）→ HITL → `guard_execute`（确认后计步）→ 工具。
+4. 模型返回 `tool_calls`：只读工具直接执行；工具异常先按规则重试，重试耗尽后转成 `status=error` 的 `ToolMessage`；文件类操作在写审计前做结果校验；命中 `CONFIRM_TOOLS` 的工具被 `HumanInTheLoopMiddleware` 挂起；R2/R3 动作在确认卡片上还要求输入审批口令（PIN）。
+5. 挂起时 `ReactAgent` 产出 `AgentEvent(type="interrupt")`（带批次号与任务卡快照），`app.py` 渲染确认卡片；用户批准后用 `Command(resume=...)` 继续，恢复时沿用同一批次与预算。
+6. 循环直到模型返回最终 `AIMessage`；`app.py` 用 `_render_events` 渲染文本并 `st.rerun()`。每次写操作都记入批次，可在侧边栏「批次与回滚」整批撤销。
 
 ## 5. 电脑操作与安全模型
 
@@ -56,7 +57,9 @@
 
 **桌面控制（computer_use，单工具多动作）**：复用 OmniPilot 的本地工具层（screen / gui / clipboard / apps），不引入它自己的 Agent 循环。`screen_size`、`locate_image`、`wait` 直接执行；`screenshot`、剪贴板读写、应用列表和所有鼠标键盘动作都需确认。截图以 LangChain content block 回传，`qwen3.5-flash` 可以直接看图；确认卡片会说明坐标、目标窗口和隐私风险。`app_open` 拒绝终端/脚本宿主/注册表/磁盘工具，`app_close` 拒绝系统关键进程。
 
-**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；单轮最多 20 次工具调用。
+**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；任务卡预算（默认 30 步/10 分钟/2 元）+ 100 步硬上限。
+
+**守卫层（小企业版 P0）**：任务卡缺字段不允许启动；只读模式禁用全部写操作；每个任务一个批次号，可在侧边栏整批回滚；R2/R3 动作需要人工持有的 PIN；急停写 `STATE_DIR/STOP` 文件；审计记录 `batch_id/step_no/reversibility/approver`；同一时刻只允许一个任务操作本机。
 
 **失败与校验**：工具异常不打断循环（`ToolErrorMiddleware` → `status=error` 的 ToolMessage）；只对幂等/只读工具的瞬时错误（超时/断连/429/5xx）重试 2 次；写文件、建目录、移动、复制、删除在写审计前做确定性后置校验，校验不过就标 `error`；上次崩溃留下的悬空 `tool_call` 会在下次提问前自动补齐占位结果。
 
@@ -67,7 +70,7 @@
 ## 6. 目录速查
 
 ```text
-agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、会话自愈、结果校验、安全策略与中间件
+agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、守卫层、会话自愈、结果校验、安全策略与中间件
 model/        Chat 模型工厂
 utils/        配置、路径、日志、提示词加载
 config/       model / agent / prompts
@@ -77,7 +80,8 @@ memorys/      记忆方式工厂 + 短期/JSON/PostgreSQL checkpointer
 tests/        unittest 用例（假模型，不联网）
 docs/         架构文档、改造复盘、电脑操作说明与 SVG
 env_patch/    .pth + sitecustomize.py
-scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py（离线验证+证据）
+scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py（离线验证+证据）+ verify_small_business.py（P0 验证+证据）+ setup_approval_pin.py
+.agent_state/ 守卫层状态：批次/会话快照/锁/急停（git 忽略）
 .vscode/      IDE 工作区配置（解释器 + 集成终端放行 Activate.ps1，随仓库生效）
 ```
 
@@ -86,7 +90,10 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **默认短期记忆**：输入框左侧的记忆按钮可选短期（默认，不存档）/ 本地 JSON 存档 / PostgreSQL；侧边栏管理会话 ID。
 - **工作区域是硬边界**：所有文件操作（包括读取）必须在 `workspace_roots` 内；敏感目录默认拒绝；可在输入框左侧「工作区域」按钮修改，保存后立即生效。
 - **消息块级流式**：只输出不带 `tool_calls` 的 `AIMessage` 文本，工具中间消息不显示；操作记录单独展示。
-- **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；目前只支持全部确认/全部拒绝。
+- **高危操作必须确认**：确认卡片用大白话解释“做什么、目标、风险、影响范围”；R2/R3 动作还需输入审批口令（PIN）；未设置 PIN 时批准按钮禁用。
+- **可整批回滚**：一次任务一个批次号；写/移动/复制/删除/建目录/追加都记入 `.agent_state/batches/`，可在侧边栏一键撤销整批；永久删除会明确报“不可逆”。
+- **预算与急停是硬约束**：步数/时长/费用超限时 `guard_model` 直接短路，不再调用模型；急停写 `STOP` 文件，独立于模型。
+- **单任务锁**：同一时刻只允许一个任务操作本机；等待人工确认的间隙会释放锁。
 - **删除默认进回收区**：`.agent_trash` 可手动恢复；`permanent=True` 才永久删除。
 - **命令检查不是沙箱**：黑名单 + 路径提取是尽力而为，确认卡片是最后防线。
 - **桌面控制不是 UI 自动化框架**：没有控件树/OCR，主要靠截图 + 坐标或模板匹配；多显示器/DPI 缩放可能让坐标偏移。
@@ -104,6 +111,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 | 整体分几层、用了什么？ | [ARCHITECTURE 第 4 节](ARCHITECTURE.md#4-总体架构) + [architecture.svg](architecture.svg) |
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
+| 任务卡/批次回滚/预算急停/PIN 怎么实现？ | [小企业版 P0 进度备忘录](small-business-p0/00-进度备忘录.md) + 01–08 入门讲解 |
 | 电脑操作有哪些功能、怎么确认？ | [OS_TOOLS.md](OS_TOOLS.md) |
 | 工具失败/重试/结果校验怎么工作？ | [agent-resilience/01-入门讲解-失败重试与结果验证.md](agent-resilience/01-入门讲解-失败重试与结果验证.md) |
 | 怎么验证改动没退化？ | [agent-resilience/02-验证与交付复盘.md](agent-resilience/02-验证与交付复盘.md) + `scripts/verify_agent_resilience.py` |

@@ -25,6 +25,11 @@ from agent.tools.middleware import (
     pii_middleware_email, pii_middleware_phone, model_fallback_middleware,
     tool_error_middleware, tool_retry_middleware,
 )
+from agent.guard import state as guard_state
+from agent.guard.lock import task_lock
+from agent.guard.middlewares import (
+    guard_execute, guard_model, guard_preflight, track_model_usage,
+)
 from agent.resilience import repair_thread_state
 from utils.logger_handler import logger
 
@@ -58,8 +63,9 @@ hitl_middleware = HumanInTheLoopMiddleware(
     description_prefix="该操作会修改电脑状态，请确认参数后再决定是否执行",
 )
 
-# 单轮对话最多 20 次工具调用，防止模型陷入循环或误操作
-TOOL_CALL_LIMIT = 20
+# 工具调用的硬上限，防止模型陷入死循环；具体的每任务步数预算
+# 由任务卡 + 守卫层（agent/guard/state.py）控制，默认 30 步。
+TOOL_CALL_LIMIT = 100
 tool_limit_middleware = ToolCallLimitMiddleware(
     run_limit=TOOL_CALL_LIMIT,
     exit_behavior="continue",
@@ -79,6 +85,8 @@ class AgentEvent:
     content: str = ""
     action_requests: list[dict[str, Any]] = field(default_factory=list)
     tool_call: dict[str, Any] | None = None
+    batch_id: str = ""
+    task_card: dict[str, Any] | None = None
 
 
 def _default_memory_mode() -> str:
@@ -113,6 +121,8 @@ class ReactAgent:
             ],
             middleware=[
                 model_fallback_middleware,
+                # 预算/急停：在每次模型调用前短路，不再给模型新的决策机会
+                guard_model,
                 pii_middleware_email,
                 pii_middleware_phone,
                 # 工具异常 → error ToolMessage（保住 ReAct 循环，不让整轮崩掉）
@@ -120,33 +130,49 @@ class ReactAgent:
                 # 只对幂等工具的瞬时错误做有限重试
                 tool_retry_middleware,
                 monitor_tool,
+                # 人工确认之前：停止/只读/任务卡/预算检查
+                guard_preflight,
                 log_before_model,
                 report_prompt_switch,
                 hitl_middleware,
+                # 人工确认之后：再检查一次并记一步预算
+                guard_execute,
                 tool_limit_middleware,
+                track_model_usage,
             ],
             checkpointer=self.checkpointer,
         )
 
-    def execute_stream(self, query: str, thread_id: str | None = None):
+    def execute_stream(self, query: str, thread_id: str | None = None, task_card=None):
         """提交一条用户消息，流式返回文本、工具记录与待确认事件。"""
         self._resume_pending_actions = []
         config = self._build_config(thread_id)
-        # 上一次运行若在工具执行中崩溃，checkpoint 里会留下没有结果的 tool_call；
-        # 先补占位结果，避免把脏历史发给模型（常见后果是 400 或模型被带偏）。
-        self._repair_pending_tool_calls(config)
-        input_dict = {
-            "messages": [
-                {"role": "user", "content": query}
-            ]
-        }
-        yield from self._stream(input_dict, config)
+        started = False
+        try:
+            # 单任务全局锁：同一时刻只允许一个任务操作本机
+            with task_lock(thread_id or "default"):
+                guard_state.start_task(thread_id or "default", task_card)
+                started = True
+                # 上一次运行若在工具执行中崩溃，checkpoint 里会留下没有结果的 tool_call；
+                # 先补占位结果，避免把脏历史发给模型（常见后果是 400 或模型被带偏）。
+                self._repair_pending_tool_calls(config)
+                input_dict = {
+                    "messages": [
+                        {"role": "user", "content": query}
+                    ]
+                }
+                yield from self._stream(input_dict, config)
+        finally:
+            if started:
+                guard_state.end_task("finished")
 
     def resume_stream(
         self,
         decisions: list[dict],
         thread_id: str | None = None,
         pending_actions: list[dict] | None = None,
+        batch_id: str | None = None,
+        task_card=None,
     ):
         """用户确认后继续执行被挂起的工具调用。
 
@@ -155,7 +181,23 @@ class ReactAgent:
         pending_actions 传入待确认的 action_requests，用于把执行结果补进操作记录。
         """
         self._resume_pending_actions = list(pending_actions or [])
-        yield from self._stream(Command(resume={"decisions": decisions}), self._build_config(thread_id))
+        started = False
+        try:
+            with task_lock(thread_id or "default"):
+                guard_state.start_task(
+                    thread_id or "default",
+                    task_card,
+                    batch_id=batch_id,
+                    resume=True,
+                )
+                started = True
+                yield from self._stream(
+                    Command(resume={"decisions": decisions}),
+                    self._build_config(thread_id),
+                )
+        finally:
+            if started:
+                guard_state.end_task("finished")
 
     def _repair_pending_tool_calls(self, config: dict) -> None:
         """补齐上一次中断遗留的悬空工具调用；失败不影响本轮请求。"""
@@ -191,7 +233,13 @@ class ReactAgent:
                             value = getattr(interrupt_obj, "value", {}) or {}
                             action_requests.extend(value.get("action_requests", []))
                         if action_requests:
-                            yield AgentEvent(type="interrupt", action_requests=action_requests)
+                            guard_state.pause_task()
+                            yield AgentEvent(
+                                type="interrupt",
+                                action_requests=action_requests,
+                                batch_id=guard_state.current_batch_id(),
+                                task_card=guard_state.current_card_dict(),
+                            )
                         continue
 
                     for node_update in chunk.values():

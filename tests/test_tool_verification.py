@@ -5,10 +5,12 @@
 2. 核对不上时，把状态改成 error，让模型和界面都能看到，而不是静默相信。
 """
 
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from langchain_core.messages import ToolMessage
 
@@ -25,8 +27,14 @@ class VerificationOutcomeTest(unittest.TestCase):
     def setUp(self):
         # 临时目录放在项目根下，确保落在默认工作区域内
         self.tmp = Path(tempfile.mkdtemp(dir=get_project_root(), prefix="_agent_verify_"))
+        # 批次日志也指到临时目录，避免测试污染项目根 .agent_state
+        self.env = mock.patch.dict(
+            os.environ, {"AGENT_STATE_DIR": str(self.tmp / "state")}
+        )
+        self.env.start()
 
     def tearDown(self):
+        self.env.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_real_write_is_verified(self):

@@ -49,7 +49,8 @@ def expand_path(raw: str) -> Path:
 
 
 def _norm(path: Path) -> str:
-    return os.path.normcase(os.path.abspath(str(path)))
+    """大小写不敏感、并展开 Windows 8.3 短路径后的比较键。"""
+    return os.path.normcase(os.path.realpath(os.path.abspath(str(path))))
 
 
 def _is_under(path: Path, root: Path) -> bool:
@@ -117,6 +118,9 @@ _BLOCKED_WRITE_SUFFIXES = {
 
 # 覆盖前备份的大小上限
 _BACKUP_MAX_BYTES = 10 * 1024 * 1024
+
+# Agent 自己的状态/备份/回收目录：只允许读，不允许写，防止模型篡改批次记录或备份。
+_RESERVED_DIR_NAMES = (".agent_state", ".agent_backup", ".agent_trash")
 
 
 def workspace_roots() -> list[Path]:
@@ -232,12 +236,30 @@ def is_system_protected(path: Path) -> bool:
     return any(_is_under(path, root) for root in _PROTECTED_ROOTS)
 
 
+def _approval_blocked(path: Path) -> bool:
+    """审批凭据目录（PIN 哈希 / 签名密钥）对 Agent 完全不可见。"""
+    try:
+        from agent.guard.approval import is_protected_path
+
+        return is_protected_path(path)
+    except Exception:  # noqa: BLE001 - 审批模块不可用时不影响其他安全检查
+        return False
+
+
+def _is_reserved(path: Path) -> bool:
+    """判断路径是否落在 Agent 自己的状态目录里。"""
+    parts = [part.lower() for part in path.parts]
+    return any(name in parts for name in _RESERVED_DIR_NAMES)
+
+
 def guard_path(raw: str, *, for_write: bool = False) -> tuple[Path | None, str]:
     """路径的统一安全入口。
 
     返回 `(path, "")` 表示通过；`(None, 错误说明)` 表示拒绝。
     """
     path = expand_path(raw)
+    if _approval_blocked(path):
+        return None, f"该路径属于审批凭据目录，Agent 不得访问：{path}"
     if not in_workspace(path):
         return None, (
             f"不在允许的工作区域内，已拒绝：{path}\n"
@@ -246,6 +268,8 @@ def guard_path(raw: str, *, for_write: bool = False) -> tuple[Path | None, str]:
         )
     if is_sensitive(path):
         return None, f"该路径属于敏感目录，已拒绝访问：{path}"
+    if for_write and _is_reserved(path):
+        return None, f"该路径属于 Agent 的状态/备份/回收目录，已拒绝修改：{path}"
     if for_write and is_system_protected(path):
         return None, f"该路径属于系统保护目录，已拒绝修改：{path}"
     return path, ""
@@ -267,13 +291,13 @@ def check_write_suffix(path: Path) -> str:
     return ""
 
 
-def backup_before_overwrite(path: Path) -> str:
-    """覆盖已有文件前先备份，返回一段给用户看的说明。"""
+def backup_before_overwrite(path: Path) -> tuple[str, Path | None]:
+    """覆盖已有文件前先备份，返回（给用户看的说明, 备份路径）。"""
     if not path.exists() or not path.is_file():
-        return ""
+        return "", None
     try:
         if path.stat().st_size > _BACKUP_MAX_BYTES:
-            return "（原文件超过 10MB，未自动备份）"
+            return "（原文件超过 10MB，未自动备份）", None
         root = workspace_root_of(path) or path.parent
         backup_dir = root / ".agent_backup"
         backup_dir.mkdir(parents=True, exist_ok=True)
@@ -284,9 +308,9 @@ def backup_before_overwrite(path: Path) -> str:
             dest = backup_dir / f"{stamp}_{counter}_{path.name}"
             counter += 1
         shutil.copy2(path, dest)
-        return f"（原文件已备份到 {dest}）"
+        return f"（原文件已备份到 {dest}）", dest
     except OSError as exc:
-        return f"（原文件备份失败：{exc}）"
+        return f"（原文件备份失败：{exc}）", None
 
 
 def move_to_trash(path: Path) -> tuple[Path | None, str]:
@@ -356,6 +380,18 @@ def check_command(command: str) -> str:
     text = str(command).strip()
     if not text:
         return "命令不能为空"
+
+    lowered = text.lower()
+    for name in _RESERVED_DIR_NAMES:
+        if name in lowered:
+            return f"该命令访问了 Agent 的状态/备份/回收目录（{name}），已拒绝：{text}"
+    try:
+        from agent.guard.approval import approval_dir
+
+        if os.path.normcase(str(approval_dir())) in os.path.normcase(text):
+            return f"该命令访问了审批凭据目录，已拒绝：{text}"
+    except Exception:  # noqa: BLE001 - 审批模块不可用时继续其他检查
+        pass
 
     for pattern, label in _DANGEROUS_COMMANDS:
         if pattern.search(text):
