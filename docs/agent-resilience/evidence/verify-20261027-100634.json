@@ -1,0 +1,138 @@
+{
+  "time": "2026-10-27T10:06:34",
+  "git_commit": "e0c384b",
+  "python": "3.14.7",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "langchain": "1.4.0",
+  "langgraph": "1.2.11",
+  "summary": {
+    "total": 20,
+    "ok": 20,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "duration_s": 2.69
+  },
+  "cases": [
+    {
+      "id": "tests.test_agent_resilience.DanglingToolCallRepairTest.test_noop_when_no_dangling_call",
+      "status": "ok",
+      "duration_s": 0.017,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.DanglingToolCallRepairTest.test_unanswered_tool_call_is_detected_and_repaired",
+      "status": "ok",
+      "duration_s": 0.0146,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolErrorMiddlewareTest.test_exception_becomes_error_tool_message_and_loop_continues",
+      "status": "ok",
+      "duration_s": 0.0131,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_auth_error_not_retried",
+      "status": "ok",
+      "duration_s": 0.0136,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_side_effect_tool_not_retried",
+      "status": "ok",
+      "duration_s": 0.0144,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_transient_error_retried_then_success",
+      "status": "ok",
+      "duration_s": 0.9604,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.RetryClassificationTest.test_permanent_errors_are_not_retryable",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.RetryClassificationTest.test_transient_errors_are_retryable",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_http_error_is_not_swallowed",
+      "status": "ok",
+      "duration_s": 0.0029,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_missing_api_key_raises_readable_error",
+      "status": "ok",
+      "duration_s": 0.0015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_no_result_returns_readable_note",
+      "status": "ok",
+      "duration_s": 0.0021,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_append_is_verified_against_tail",
+      "status": "ok",
+      "duration_s": 0.0048,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_claimed_write_without_file_is_flagged",
+      "status": "ok",
+      "duration_s": 0.0006,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_enrich_keeps_untouched_when_not_applicable",
+      "status": "ok",
+      "duration_s": 0.0006,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_enrich_marks_failed_verification_as_error",
+      "status": "ok",
+      "duration_s": 0.0006,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_failed_tool_result_is_not_reverified",
+      "status": "ok",
+      "duration_s": 0.0004,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_delete_is_verified",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_move_is_verified",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_write_is_verified",
+      "status": "ok",
+      "duration_s": 0.0018,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_unknown_tool_is_skipped",
+      "status": "ok",
+      "duration_s": 0.0004,
+      "detail": ""
+    }
+  ]
+}
