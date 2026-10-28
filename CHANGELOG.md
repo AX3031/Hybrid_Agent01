@@ -152,6 +152,7 @@
 
 ### Fixed
 
+- 修复“PIN 输入正确、凭证也生成了，R2 动作却被拒绝”：审批上下文原先只存在 `agent/guard/state.py` 的进程内模块字典 `_APPROVAL`。Streamlit 1.64 检测到本地模块文件变化时会卸载并重新导入模块，但 `st.session_state` 里缓存的旧 Agent 不会重建——旧中间件仍持有旧的 `state` 模块，界面侧把凭证写进新模块、执行端去旧模块里读，于是每次都报“当前没有有效的审批凭证”（真实事故：2026-10-28 连续 5 次“打开微信/点击搜索”被拒）。现在 `set_approval_context()` 同时写内存与 `.agent_state/approval_context.json`（原子替换、15 分钟过期），执行侧内存为空时回落读文件；文件里只有 HMAC 凭证摘要、没有 PIN，执行端仍会验签并校验任务/批次/动作绑定。`app.py` 同时按 `agent.guard_state is 当前模块` 检测旧 Agent，脱节就重建并取消上一轮未完成的确认。新增 3 条用例（含热重载后 R2 动作仍能执行）。
 - 修复“确认后继续执行”时的 `'TaskCard' object is not iterable`：`_card_to_dict()` 原来用 `isinstance(card, TaskCard)` 判断，Streamlit 热重载会让 `state` 持有旧类对象、`isinstance` 变成 False，于是走到 `dict(card)` 直接抛异常。现在改为按能力判断（有 `to_dict()` 就当任务卡，`Mapping` 浅拷贝，其它类型抛带类型名的 `TypeError`，**不静默变 `{}`**），`TaskCard.from_dict()` 也接受已经是 TaskCard 的对象，`app.py` 在调用边界统一传 dict。
 - 修复“区域截图后点击偏到屏幕左上角”：`screenshot(region=...)` 返回的是局部图片，但结果文案仍写着“与屏幕坐标一致”，模型会把 0~300 的图片坐标当屏幕坐标。现在区域截图会给出 `这是区域 [x=..,y=..,w=..,h=..] 的局部截图` 与 `屏幕坐标 = (x + 图片x × 比例, y + 图片y × 比例)`，并提示优先用 `ocr_text`/`ui_tree`；全屏截图文案保持不变。
 
@@ -196,6 +197,7 @@
 
 ### Security
 
+- 审批上下文新增落盘副本 `.agent_state/approval_context.json`（原子替换、15 分钟过期）：只保存 HMAC 凭证与任务/批次/动作绑定信息，**不保存 PIN**；`.agent_state` 对 Agent 工具禁写，且执行侧仍会验签，伪造文件不能放行。
 - 桌面控制新增两块硬限制：① 控件级/OCR 动作在动手前先校验目标窗口，终端、脚本宿主、注册表/磁盘/策略工具与系统关键进程一律拒绝，堵住“往已开着的终端窗口里打字从而绕过 `run_command` 黑名单”这条路；② 助手自身窗口与开着确认页（Streamlit）的浏览器窗口也被拒绝，避免用 UI 自动化自己去点“我确认，执行”；密码框（UIA `IsPassword`）不读不写。
 - 新增残余风险（已记为 TD-41）：`ui_tree`/`ocr_text` 会把界面上的文字（包括**未标记为密码框**的输入框值）送进模型上下文；审计与操作记录已脱敏，但模型侧没有内容过滤。需要时请改用“只读控件元数据”的模式或限制可操作窗口。
 

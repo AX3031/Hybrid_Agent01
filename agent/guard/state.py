@@ -33,6 +33,19 @@ _LOCK = threading.RLock()
 _CURRENT: "TaskRuntime | None" = None
 _APPROVAL: dict = {}
 
+# 审批上下文的落盘副本。
+#
+# 为什么不只放内存：Streamlit 在本地模块文件变化时会卸载并重新导入模块，
+# 但 `st.session_state` 里缓存的旧 Agent 不会重建——旧中间件仍持有旧
+# `agent.guard.state` 模块，而界面侧写的是新模块的 `_APPROVAL`。
+# 结果就是“PIN 正确、凭证也生成了，执行端却一直说没有凭证”（真实事故：
+# 2026-10-28 打开微信连续 5 次被拒）。文件是唯一能跨模块实例共享的介质。
+#
+# 安全边界：文件里只有 HMAC 凭证摘要，没有 PIN；执行端仍会校验签名、
+# 有效期和任务/批次/动作绑定，伪造文件过不了验签。
+_APPROVAL_FILE = "approval_context.json"
+_APPROVAL_FILE_TTL_SECONDS = 15 * 60
+
 
 class TaskStopped(RuntimeError):
     """急停尚未解除时拒绝启动新任务。"""
@@ -447,6 +460,56 @@ def add_usage(input_tokens: int = 0, output_tokens: int = 0) -> None:
         _persist(_CURRENT)
 
 
+def _approval_path() -> Path:
+    return state_dir() / _APPROVAL_FILE
+
+
+def _persist_approval(payload: dict) -> None:
+    """原子写入审批上下文；失败只告警，不影响本轮已批准的这次调用。"""
+    path = _approval_path()
+    temp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, path)
+    except OSError as exc:
+        logger.warning(f"[guard]保存审批上下文失败（已忽略）：{exc}")
+    finally:
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _load_approval() -> dict:
+    """读取落盘副本；过期或损坏一律当作没有，避免旧凭证被误用。"""
+    path = _approval_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict) or not data.get("token"):
+        return {}
+    try:
+        saved_at = float(data.get("saved_at") or 0)
+    except (TypeError, ValueError):
+        return {}
+    if time.time() - saved_at > _APPROVAL_FILE_TTL_SECONDS:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return {}
+    return data
+
+
+def _approval_snapshot() -> dict:
+    """内存优先；内存为空时读落盘副本（跨模块实例/跨热重载共享）。"""
+    if _APPROVAL.get("token"):
+        return _APPROVAL
+    return _load_approval()
+
+
 def set_approval_context(
     token: str = "",
     approver: str = "human",
@@ -464,35 +527,42 @@ def set_approval_context(
         for item in (actions or [])
         if isinstance(item, dict) and item.get("name")
     ]
-    names = {item["name"] for item in normalized_actions}
+    names = sorted({item["name"] for item in normalized_actions})
+    payload = {
+        "token": str(token or ""),
+        "approver": str(approver or "human"),
+        "names": names,
+        "actions": normalized_actions,
+        "thread_id": str(thread_id or ""),
+        "batch_id": str(batch_id or ""),
+        "saved_at": time.time(),
+    }
     _APPROVAL.clear()
-    _APPROVAL.update(
-        {
-            "token": token,
-            "approver": approver,
-            "names": names,
-            "actions": normalized_actions,
-            "thread_id": thread_id,
-            "batch_id": batch_id,
-        }
-    )
+    _APPROVAL.update(payload)
+    _persist_approval(payload)
 
 
 def approval_context(tool_name: str = "") -> dict:
-    names = _APPROVAL.get("names")
+    data = _approval_snapshot()
+    names = data.get("names")
     if names and tool_name and tool_name not in names:
         return {}
     return {
-        "token": _APPROVAL.get("token", ""),
-        "approver": _APPROVAL.get("approver", "agent"),
-        "actions": list(_APPROVAL.get("actions") or []),
-        "thread_id": _APPROVAL.get("thread_id", ""),
-        "batch_id": _APPROVAL.get("batch_id", ""),
+        "token": data.get("token", ""),
+        "approver": data.get("approver", "agent"),
+        "actions": list(data.get("actions") or []),
+        "thread_id": data.get("thread_id", ""),
+        "batch_id": data.get("batch_id", ""),
     }
 
 
 def clear_approval_context() -> None:
+    """清空审批上下文；同时删除落盘副本，避免下一轮误用旧凭证。"""
     _APPROVAL.clear()
+    try:
+        _approval_path().unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(f"[guard]删除审批上下文失败（已忽略）：{exc}")
 
 
 def reset_for_tests() -> None:

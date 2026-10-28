@@ -59,7 +59,7 @@
 
 **自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入（复制/移动目标与目录树也检查）；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据/技能库拒绝 Agent 写入；任务卡预算（普通任务 30 步/10 分钟/2 元，要动鼠标键盘的桌面任务 60 步/20 分钟/5 元）+ 100 步/单次运行硬上限；同一区域反复同一动作会被 `repeat_guard` 先提醒后拦截（第 3 次提醒、第 6 次拒绝执行）。
 
-**守卫层（小企业版 P0）**：界面自动生成快速任务卡，`start_task` 仍要求有卡；机器判据可选，填了才由代码核对，未填按人工确认验收；只读模式禁用全部写操作；每个任务一个批次号，可在侧边栏整批回滚，并明确命令/GUI/永久删除不在回滚范围；R2/R3 动作需要人工持有的 PIN，执行侧验签并绑定任务/批次/动作；急停写 `STATE_DIR/STOP` 文件；审计记录 `batch_id/step_no/reversibility/approver`；同一时刻只允许一个任务操作本机。
+**守卫层（小企业版 P0）**：界面自动生成快速任务卡，`start_task` 仍要求有卡；机器判据可选，填了才由代码核对，未填按人工确认验收；只读模式禁用全部写操作；每个任务一个批次号，可在侧边栏整批回滚，并明确命令/GUI/永久删除不在回滚范围；R2/R3 动作需要人工持有的 PIN，执行侧验签并绑定任务/批次/动作（凭证内存 + `.agent_state/approval_context.json` 落盘，避免 Streamlit 热重载后界面写新模块、执行端读旧模块）；急停写 `STATE_DIR/STOP` 文件；审计记录 `batch_id/step_no/reversibility/approver`；同一时刻只允许一个任务操作本机。
 
 **失败与校验**：工具异常不打断循环（`ToolErrorMiddleware` → `status=error` 的 ToolMessage）；只对幂等/只读工具的瞬时错误（超时/断连/429/5xx）重试 2 次；写文件、建目录、移动、复制、删除在写审计前做确定性后置校验，校验不过就标 `error`；上次崩溃留下的悬空 `tool_call` 会在下次提问前自动补齐占位结果。
 
@@ -81,7 +81,7 @@ tests/        unittest 用例（假模型，不联网）
 docs/         架构文档、改造复盘、电脑操作说明、small-business-p0 与 SVG
 env_patch/    .pth + sitecustomize.py
 scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py（离线验证+证据）+ verify_small_business.py（P0 验证+证据）+ setup_approval_pin.py
-.agent_state/ 守卫层状态：批次/会话快照/锁/急停（git 忽略）
+.agent_state/ 守卫层状态：批次/会话快照/锁/急停/审批上下文副本（git 忽略）
 .vscode/      IDE 工作区配置（解释器 + 集成终端放行 Activate.ps1，随仓库生效）
 ```
 
@@ -103,7 +103,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **桌面控制的应用边界**：`app_open` 不启动终端/脚本宿主/注册表/磁盘工具（避免绕过 `run_command`）；`app_close` 不关闭系统关键进程。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
 - **Windows 集成终端已放宽执行策略**：`.vscode/settings.json` 给终端的 PowerShell 加了 `-ExecutionPolicy Bypass`（仅该终端进程、不写注册表），用于让自动执行的 `Activate.ps1` 跟 Windows 默认的 `Restricted` 共存；它不是安全防线，项目边界仍在 `safety.py` + HITL 确认 + 审计日志。
-- **未实现**：鉴权、限流、多租户、文件上传 UI；已有 190 条离线用例（含 P0 守卫层 59 条）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏；`.env`/密钥文件读取仍未拦截（计划默认拒绝 + 独立敏感读取审批）；技能库截图可能含隐私，保存前需人工确认。
+- **未实现**：鉴权、限流、多租户、文件上传 UI；已有 193 条离线用例（含 P0 守卫层 62 条）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏；`.env`/密钥文件读取仍未拦截（计划默认拒绝 + 独立敏感读取审批）；技能库截图可能含隐私，保存前需人工确认。
 
 ## 8. 按问题找位置
 

@@ -1,2 +1,2 @@
-chat_model_name: qwen3.5-flash
-backup_chat_model_name: glm-5
+chat_model_name: qwen3.5-27b
+backup_chat_model_name: qwen3.5-flash

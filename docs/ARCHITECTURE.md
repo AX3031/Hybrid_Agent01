@@ -110,7 +110,7 @@
 | 真实天气/定位/用户系统 | 工具返回模拟数据 |
 | GUI 级操作（键鼠/窗口/截图） | 已接入 `computer_use`（OmniPilot 工具层 + Windows UIA/OCR）；控件树与 OCR 都已接，自绘界面仍只能靠 OCR/模板匹配 |
 | 文件上传 UI | `app_file_uploader.py` 为空壳 |
-| 自动化测试/CI | 已有 190 条离线用例和验证脚本，但还没有自动 CI 门禁 |
+| 自动化测试/CI | 已有 193 条离线用例和验证脚本，但还没有自动 CI 门禁 |
 
 > 结论：当前适合做原型验证和 LangChain Agent 二次开发脚手架，不应直接按生产系统对外承诺 SLA。
 
@@ -284,7 +284,7 @@ project2/
 | `agent/guard/criteria.py` | `parse_machine_check`、`evaluate_machine_checks`、`criteria_report` | 解析/执行机器判据（存在/不存在、文件数、大小、SHA-256、文本包含）；无法核对标未确认；未配置由 `react_agent` 标 `not_required` | 被 `task_card.py`、`react_agent.py` 使用 |
 | `agent/guard/scope.py` | `ROLLBACKABLE_TOOLS`、`is_rollbackable`、`ROLLBACK_BOUNDARY_TEXT` | 明确回滚边界：文件类可回滚；命令/GUI/永久删除/大文件覆盖不可回滚 | 被 `app.py`、`task_card.py` 使用 |
 | `agent/guard/policy.py` | `check_read_only`、`check_task_card`、`reversibility_of`、`requires_second_subject`、`requires_task_card`、`preflight_reason`、`GUI_SEMANTIC_FORBIDDEN` | 只读、动作类别、目录范围、R0–R3 分级、写操作前置任务卡、GUI 语义禁令保守拦截 | 被 `middlewares.py`、`os_tools.py`、`app.py` 使用 |
-| `agent/guard/state.py` | `start_task`、`end_task`、`consume_step`、`budget_reason`、`request_stop`、`set_approval_context`、`record_tool_status`、`_card_to_dict` | 任务运行时账本、预算、急停、会话快照、审批上下文、工具失败计数；`_card_to_dict` 用**能力判断**接受 TaskCard/dict（热重载后类身份会变，不能只用 isinstance） | 被中间件、工具、`ReactAgent`、`app.py` 使用 |
+| `agent/guard/state.py` | `start_task`、`end_task`、`consume_step`、`budget_reason`、`request_stop`、`set_approval_context`、`record_tool_status`、`_card_to_dict` | 任务运行时账本、预算、急停、会话快照、审批上下文（内存 + `.agent_state/approval_context.json` 落盘副本，跨 Streamlit 模块重载）、工具失败计数；`_card_to_dict` 用**能力判断**接受 TaskCard/dict（热重载后类身份会变，不能只用 isinstance） | 被中间件、工具、`ReactAgent`、`app.py` 使用 |
 | `agent/guard/journal.py` | `new_batch_id`、`record_*`、`rollback_batch`、`list_batches` | 批次 JSONL、整批回滚、批次摘要 | 被 `os_tools.py`、`state.py`、`app.py` 使用 |
 | `agent/guard/lock.py` | `task_lock`、`TaskBusyError` | 单任务文件锁、PID/时间过期清理 | 被 `ReactAgent` 使用 |
 | `agent/guard/approval.py` | `set_pin`、`verify_pin`、`sign_approval`、`verify_approval_token`、`is_protected_path` | PIN 哈希、HMAC 凭证、凭证验签与任务/批次/动作绑定、审批目录保护 | 被 `app.py`、`middlewares.py`、`safety.py`、设置脚本使用 |
@@ -685,7 +685,7 @@ AIMessage("已清理 3 个临时文件...")
 | 批次回滚 | 写/移动/复制/删除/建目录/追加记入批次，可一键撤销整批 | `guard/journal.py` |
 | 预算与急停 | 步数/时长/费用超限短路；`STOP` 文件独立于模型 | `guard/state.py`、`guard/middlewares.py` |
 | 单任务锁 | `.agent_state/task.lock` 互斥；PID/时间过期自动清理 | `guard/lock.py` |
-| 第二主体 | R2/R3 需 PIN；只存 PBKDF2 哈希；审批凭证 HMAC 签名；`guard_execute` 验签并绑定任务/批次/动作 | `guard/approval.py`、`guard/middlewares.py` |
+| 第二主体 | R2/R3 需 PIN；只存 PBKDF2 哈希；审批凭证 HMAC 签名；`guard_execute` 验签并绑定任务/批次/动作；凭证同时写 `.agent_state/approval_context.json`，避免 Streamlit 热重载后界面写新模块、执行端读旧模块；旧 Agent 与模块脱节时界面会重建 | `guard/approval.py`、`guard/state.py`、`guard/middlewares.py`、`app.py` |
 | 会话自愈 | 提交新消息前为上次中断的悬空 `tool_call` 补 `[未执行]` 占位结果 | `resilience.repair_thread_state` |
 | 原地打转拦截 | 同一区域（坐标 60 px 内）反复做同一个鼠标/键盘动作：第 3 次在工具结果里附「[重复动作提醒]」并提示改用 app_open/app_open_start_menu，第 6 次判定为打转直接拒绝执行且不记步；截图等观察动作不计入 | `guard/repeat_guard.py`、`guard/middlewares.py` |
 | 控件级操作的目标检查 | `ui_click`/`ui_set_text`/`click_text` 在动手**之前**先解析目标窗口：终端/脚本宿主/注册表/磁盘/系统关键进程/助手自身窗口/最小化窗口一律拒绝；密码框不读不写 | `computer_use._guard_ui_target`、`uia_bridge.ps1` |
@@ -1102,7 +1102,7 @@ memorys/chat_history/
 | TD-14 | P2 | `yaml.FullLoader` 非最安全 | `config_handler.py` | 恶意 YAML 有风险（本地配置场景较低） | 改用 `yaml.safe_load` |
 | TD-15 | ✅ 已修复 | `md5.text` 非原子、无并发保护 | RAG 子系统已整体移除 | — | — |
 | TD-16 | ✅ 已修复 | 运行产物被 Git 跟踪 | 之前 `git ls-files` 含 `__pycache__`、`logs`、`memorys/chat_history`；现在已从索引移除并由 `.gitignore` 忽略 | 仓库不再膨胀 | 保持提交前检查 |
-| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（190 条 unittest 用例，其中 P0 守卫层 59 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
+| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（193 条 unittest 用例，其中 P0 守卫层 62 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
 | TD-18 | ✅ 已修复 | 模型/Embedding 维度无迁移机制 | 向量库已移除；当前无 embedding 依赖 | — | 如后续重新引入检索，需做集合版本管理 |
 | TD-19 | P2 | 外部数据缓存不失效 | `external_data` 模块级 dict 只填充一次 | 运行中 CSV 更新不生效 | 加 TTL/文件 mtime 检查 |
 | TD-20 | ✅ 已修复 | 逐字符 `time.sleep(0.01)` | 已改为按事件块渲染，不再逐字符 sleep | 长回答不再阻塞请求线程 | — |
@@ -1383,13 +1383,14 @@ scripts/verify_agent_resilience.py   # 跑全部用例并输出证据 JSON
 scripts/verify_small_business.py     # 跑全部用例 + 统计 P0 守卫层用例 + 证据 JSON
 ```
 
-当前共 **190 条用例**（其中 P0 守卫层 59 条，其余为韧性/校验/桌面/技能库/长任务/UI 自动化用例），全部通过。
+当前共 **193 条用例**（其中 P0 守卫层 62 条，其余为韧性/校验/桌面/技能库/长任务/UI 自动化用例），全部通过。
 
 要点：
 
 - 假模型只实现 `bind_tools` + `_generate`，不联网、不花钱；用 `InMemorySaver` 隔离会话。
 - 测试文件操作时，临时目录建在项目根下（默认工作区内），用完即删；守卫层用例用 `AGENT_STATE_DIR` / `AGENT_APPROVAL_DIR` 指向临时目录。
 - 断言直接看 `ToolMessage.status` 与消息内容，不依赖模型输出。
+- 跨模块重载回归：`test_small_business_guard.py` 的 `GuardMiddlewareOrderTest` 用第二个 `state` 模块实例模拟 Streamlit 卸载重导，验证“界面侧写新模块、执行端读旧模块”时凭证仍能通过验签并执行。
 - `GuardMiddlewareOrderTest` 专门验证“等待确认不扣步、批准后才扣步、预算超限不调用模型、R2 无 PIN/假 token/有效绑定 token”的行为。
 - `TrimMiddlewareWiringTest` / `GuardExecuteWiringTest` 直接调用中间件的 `wrap_model_call` / `wrap_tool_call`，验证“只改写本次请求、不动 checkpoint”与“第 3 次提醒、第 6 次拒绝且不记步”。
 - 后续补 CI 时，可直接调用 `scripts/verify_small_business.py`，退出码已区分红绿。

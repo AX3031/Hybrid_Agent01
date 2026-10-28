@@ -919,6 +919,17 @@ if session_changed:
     st.session_state.pop("task_card", None)
 
 # 创建 Agent；PostgreSQL 连接失败时回退到短期记忆，避免页面无法使用
+cached_agent = st.session_state.get("agent")
+if cached_agent is not None and getattr(cached_agent, "guard_state", None) is not guard_state:
+    # Streamlit 在本地模块变化时会卸载并重新导入模块，但 session_state 里的旧
+    # Agent 不会重建；旧中间件仍持有旧守卫层模块，于是界面把审批凭证写进新模块、
+    # 执行端去旧模块里读，表现为“PIN 正确却一直被拒绝”。这里按对象身份判断，
+    # 脱节就丢弃重建；旧 interrupt 的 checkpoint 也属于旧实例，一并取消。
+    logger.warning("[app]检测到本地模块已重载，重建 Agent 以保持守卫层状态一致")
+    st.session_state.pop("agent", None)
+    st.session_state.pop("pending_hitl", None)
+    st.warning("检测到代码更新，助手已重建；上一轮未完成的确认已取消，请重新发起任务。")
+
 if "agent" not in st.session_state:
     try:
         st.session_state["agent"] = ReactAgent(memory_mode=selected_mode)

@@ -37,6 +37,7 @@
 - 不要为了拿控件树去装 `uiautomation`/`pywinauto`/`comtypes`：本机 Python 3.14 没有可用轮子，硬装会破坏环境。控件树与 OCR 统一走 `agent/tools/ui_bridge.py` + `agent/tools/uia_bridge.ps1`（Windows 自带 UIAutomation / WinRT OCR，零依赖）。该脚本必须保持 ASCII 注释（Windows PowerShell 5.1 按 ANSI 读无 BOM 脚本）。
 - 不要让模型自动化“确认页所在窗口”：确认卡片在浏览器里的 Streamlit 页面上，自动点它等于自己批自己；`_UI_SELF_UI_MARKERS` 必须保留对助手自身 pid 与确认页标题的拒绝，免确认动作（如 `ui_wait`）不得回显窗口标题/坐标。
 - 不要用 `isinstance(x, SomeClass)` 判断跨模块传入的对象身份：Streamlit 热重载会重新执行模块、生成新的类对象，而别的模块还持有旧类引用，导致 `isinstance` 为 False（真实事故：`_card_to_dict` 走到 `dict(card)`，确认后继续执行报 `'TaskCard' object is not iterable`）。改用能力判断（`hasattr(x, "to_dict")` / `Mapping`），并在调用边界统一传 dict；判断不了时抛带类型名的 `TypeError`，**不要静默变成 `{}`**（会让任务卡失效、守卫范围变宽）。
+- 不要把跨模块共享的运行态（尤其审批上下文）只放进程内模块全局：Streamlit 1.64 检测到本地模块文件变化时会**卸载并重新导入**模块，而 `st.session_state` 里缓存的旧 Agent 不会重建，旧中间件会一直读旧 `agent.guard.state`。审批上下文必须内存 + `.agent_state/approval_context.json` 双写，界面侧还要按 `agent.guard_state is 当前模块` 重建旧 Agent；否则会出现“PIN 正确却一直说没有凭证”（真实事故：2026-10-28 打开微信/点搜索连续 5 次被拒）。
 - 不要把技能库改成“自动执行器”：schema 升级（`goal_match`/`intents`/`verify`）只能增加提示信息，技能仍不得绕过当前任务卡、人工确认与 PIN；改 schema 时必须保持 `_normalise_skill()` 向前兼容，旧 `skills.json` 不丢数据；匹配规则不能拿“描述里提到目标”当命中（会造成假阳性，已有用例）。
 - 不要把区域截图当全局截图描述：`screenshot(region=...)` 返回的是局部图片（像素从 0 开始），结果文案必须带上“区域左上角偏移 + 换算公式”（`_region_mapping_note`），否则模型会按局部坐标去点，落在屏幕左上角附近；改动时保留 `tests/test_ui_actions.py::RegionScreenshotNoteTest`。
 

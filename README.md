@@ -99,12 +99,12 @@
 | 只读总开关 | ✅ 已接入 | `config/agent.yml` 的 `read_only` + 侧边栏开关 + `agent/guard/policy.py` |
 | 批次号 + 整批回滚 | ✅ 已接入 | `agent/guard/journal.py` + `.agent_state/batches/` + 侧边栏「批次与回滚」 |
 | 预算与急停 | ✅ 已接入 | `agent/guard/state.py`、`agent/guard/middlewares.py`；`STOP` 文件与界面急停按钮 |
-| 第二主体审批口令（PIN） | ✅ 已接入 | `agent/guard/approval.py` + `scripts/setup_approval_pin.py`；R2/R3 动作需要；执行侧验签并绑定任务/批次/动作 |
+| 第二主体审批口令（PIN） | ✅ 已接入 | `agent/guard/approval.py` + `scripts/setup_approval_pin.py`；R2/R3 动作需要；执行侧验签并绑定任务/批次/动作；凭证内存 + `.agent_state/approval_context.json` 双写，避免 Streamlit 热重载后“界面写新模块、执行端读旧模块”被拒 |
 | GUI 语义禁令 | ✅ 已接入 | 自定义任务卡禁止“发送/提交/付款”时，所有 GUI 输入类动作被保守拒绝；快速任务卡默认不包含这些词，因此 GUI 默认可用但仍需人工确认 + PIN；`run_command`/`open_path` 仍需人工确认 + PIN |
 | 审计与回放 | ✅ 已接入 | `utils/audit_logger.py` 扩展字段 + 批次回放 UI |
 | 单任务全局锁 | ✅ 已接入 | `agent/guard/lock.py` + `ReactAgent` 的 `task_lock` |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
-| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，190 条，其中 P0 守卫层 59 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
+| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，193 条，其中 P0 守卫层 62 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
 | 模型调用前状态日志 | ✅ 已接入 | `agent/tools/middleware.py` → `log_before_model` |
 | 报告场景动态提示词 | ✅ 已接入 | `fill_context_for_report` + `report_prompt_switch` |
 | 联网搜索（百度） | ✅ 已接入 | `agent/tools/agent_tools.py` → `web_search_baidu` |
@@ -316,7 +316,7 @@ project2/
 │   ├── verify_agent_resilience.py  # ✅ 跑离线用例并生成证据快照
 │   ├── verify_small_business.py    # ✅ 跑小企业版 P0 用例并生成证据
 │   └── setup_approval_pin.py       # ⚙️ 设置/查看审批口令（PIN）
-├── .agent_state/              # ⚙️ 守卫层状态：批次/会话快照/锁/急停（git 忽略）
+├── .agent_state/              # ⚙️ 守卫层状态：批次/会话快照/锁/急停/审批上下文副本（git 忽略）
 ├── tests/                      # ✅ unittest 用例（假模型，不联网）
 └── docs/                       # 速览、架构文档、电脑操作说明、small-business-p0 与 SVG 图
 ```
@@ -452,7 +452,7 @@ project2/
 ## 10. 安全与协作约定
 
 - `.env` 已加入 `.gitignore`；不要把 API Key、数据库连接串写进代码、提示词、日志或文档。
-- `.agent_state/` 是运行时状态（批次、会话快照、锁、急停），已忽略；不要提交、不要当源码分发。
+- `.agent_state/` 是运行时状态（批次、会话快照、锁、急停、审批上下文副本），已忽略；不要提交、不要当源码分发。
 - **审批口令（PIN）不要写进 `.env`、README、提示词、聊天记录或 Git**；只通过 `scripts/setup_approval_pin.py` 设置，目录默认在 `%PROGRAMDATA%\OSGuiAgent\approval`。
 - `logs/` 会记录用户输入与工具参数，接入真实业务后需考虑脱敏与保留周期；目前仅图片 base64、桌面文字输入与剪贴板内容做了定向脱敏。
 - `computer_use` 会把截图写到 `logs/omnipilot/screenshots/`，并把图片作为工具结果发给模型；截图可能包含密码、聊天记录等隐私内容，确认前请看清楚。

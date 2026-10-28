@@ -15,6 +15,7 @@ import os
 import shutil
 import hashlib
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -805,6 +806,88 @@ class GuardMiddlewareOrderTest(GuardTestBase):
         self.assertTrue(messages)
         self.assertEqual(messages[-1].status, "success", messages[-1].content)
         guard_state.end_task()
+
+    @staticmethod
+    def _reload_state_module():
+        """模拟 Streamlit 卸载并重新导入模块：同一文件的第二个模块实例。"""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_guard_state_reloaded", Path(guard_state.__file__)
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_approval_context_survives_module_reload(self):
+        """界面侧写新模块、执行端读旧模块时，凭证也不能丢。"""
+        reloaded = self._reload_state_module()
+        self.assertIsNot(reloaded, guard_state)
+        guard_state.start_task("g7", self.make_card(), batch_id="BGUARD-7")
+        actions = [{"name": "computer_use", "args": {"action": "app_open", "name": "微信"}}]
+        reloaded.set_approval_context(
+            "reload-token", "human", actions, thread_id="g7", batch_id="BGUARD-7"
+        )
+
+        context = guard_state.approval_context("computer_use")
+        self.assertEqual(context["token"], "reload-token", "旧模块应能读到落盘副本")
+        self.assertEqual(context["batch_id"], "BGUARD-7")
+        self.assertEqual(guard_state.approval_context("run_command"), {}, "工具名不匹配时不能放行")
+
+        guard_state.clear_approval_context()
+        self.assertEqual(guard_state.approval_context("computer_use")["token"], "")
+        self.assertFalse((self.state_dir / "approval_context.json").exists())
+        guard_state.end_task()
+
+    def test_bound_token_in_reloaded_module_still_executes(self):
+        """真实事故回归：热重载后 R2 动作不能因为“读不到凭证”被拒。"""
+        guard_state.start_task("g8", self.make_card(), batch_id="BGUARD-8")
+        graph, config = self._build_r2_graph()
+        list(graph.stream({"messages": [{"role": "user", "content": "执行"}]}, config=config))
+
+        actions = [{"name": "run_command", "args": {"command": "echo hi"}}]
+        token = approval.sign_approval("g8", "BGUARD-8", actions)
+        reloaded = self._reload_state_module()
+        reloaded.set_approval_context(
+            token, "human", actions, thread_id="g8", batch_id="BGUARD-8"
+        )
+
+        list(
+            graph.stream(
+                Command(resume={"decisions": [{"type": "approve"}]}),
+                config=config,
+            )
+        )
+        messages = [
+            message
+            for message in graph.get_state(config).values["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertTrue(messages)
+        self.assertEqual(messages[-1].status, "success", messages[-1].content)
+        guard_state.clear_approval_context()
+        guard_state.end_task()
+
+    def test_expired_persisted_approval_is_ignored(self):
+        path = self.state_dir / "approval_context.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "token": "stale-token",
+                    "approver": "human",
+                    "names": ["computer_use"],
+                    "actions": [{"name": "computer_use", "args": {"action": "app_open"}}],
+                    "thread_id": "g9",
+                    "batch_id": "BGUARD-9",
+                    "saved_at": time.time() - 3600,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(guard_state.approval_context("computer_use")["token"], "")
+        self.assertFalse(path.exists(), "过期副本应被清理，避免下一轮误用")
 
 
 class AgentConfigBlockTest(unittest.TestCase):

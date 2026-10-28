@@ -104,6 +104,11 @@ class ReactAgent:
         # 记忆方式：short_term（默认）/ file / postgres
         self.memory_mode = memory_mode or _default_memory_mode()
         self.checkpointer = create_checkpointer(self.memory_mode)
+        # 记录创建时绑定的守卫层状态模块：Streamlit 检测到代码变化会卸载并
+        # 重新导入模块，但 session_state 里的旧 Agent 不会重建。界面据此判断
+        # “旧 Agent 是否已经和当前模块脱节”，脱节时直接重建，避免审批凭证
+        # 写在新模块、执行端读旧模块（真实事故：PIN 正确却一直被拒绝）。
+        self.guard_state = guard_state
         # 确认后恢复执行时，用于把 ToolMessage 与之前被挂起的操作配对
         self._resume_pending_actions: list[dict] = []
         self.agent = create_agent(

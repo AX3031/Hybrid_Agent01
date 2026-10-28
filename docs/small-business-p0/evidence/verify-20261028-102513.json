@@ -1,0 +1,1195 @@
+{
+  "time": "2026-10-28T10:25:13",
+  "git_commit": "a23537b",
+  "python": "3.14.7",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "langchain": "1.4.0",
+  "langgraph": "1.2.11",
+  "guard_config": {
+    "read_only": false,
+    "task_defaults": {
+      "max_steps": 30,
+      "max_minutes": 10,
+      "max_cost_yuan": 2.0
+    },
+    "configured_keys": [
+      "external_data_path",
+      "model_prices",
+      "read_only",
+      "sensitive_dirs",
+      "task_defaults",
+      "vision_history",
+      "workspace_roots"
+    ]
+  },
+  "summary": {
+    "total": 193,
+    "ok": 193,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "duration_s": 4.22,
+    "p0_total": 62,
+    "p0_ok": 62
+  },
+  "cases": [
+    {
+      "id": "tests.test_agent_resilience.DanglingToolCallRepairTest.test_noop_when_no_dangling_call",
+      "status": "ok",
+      "duration_s": 0.0159,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.DanglingToolCallRepairTest.test_unanswered_tool_call_is_detected_and_repaired",
+      "status": "ok",
+      "duration_s": 0.0139,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolErrorMiddlewareTest.test_exception_becomes_error_tool_message_and_loop_continues",
+      "status": "ok",
+      "duration_s": 0.0119,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_auth_error_not_retried",
+      "status": "ok",
+      "duration_s": 0.0116,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_side_effect_tool_not_retried",
+      "status": "ok",
+      "duration_s": 0.0118,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_resilience.ToolRetryMiddlewareTest.test_transient_error_retried_then_success",
+      "status": "ok",
+      "duration_s": 0.8385,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.RetryClassificationTest.test_permanent_errors_are_not_retryable",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.RetryClassificationTest.test_transient_errors_are_retryable",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_http_error_is_not_swallowed",
+      "status": "ok",
+      "duration_s": 0.0023,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_missing_api_key_raises_readable_error",
+      "status": "ok",
+      "duration_s": 0.0016,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_agent_tools.WebSearchFailureTest.test_no_result_returns_readable_note",
+      "status": "ok",
+      "duration_s": 0.0021,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.CoerceStrListTest.test_empty_and_none",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.CoerceStrListTest.test_json_string_array_is_parsed",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.CoerceStrListTest.test_list_with_nested_json_string_is_flattened",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.CoerceStrListTest.test_malformed_bracket_string_is_cleaned",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.CoerceStrListTest.test_plain_hotkey_string_still_splits",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.CoerceStrListTest.test_real_list_is_preserved",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.HotkeyArgumentsTest.test_app_open_arguments_accepts_stringified_list",
+      "status": "ok",
+      "duration_s": 0.0002,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.HotkeyArgumentsTest.test_app_open_arguments_still_blocks_dangerous_chars",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.HotkeyArgumentsTest.test_hotkey_accepts_stringified_list",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.HotkeyArgumentsTest.test_hotkey_rejects_garbage_after_cleanup",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.HotkeyArgumentsTest.test_screenshot_region_accepts_stringified_list",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_args.HotkeyArgumentsTest.test_screenshot_region_rejects_wrong_length",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.AppNameVariantsTest.test_chinese_name_expands_to_english_alias",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.AppNameVariantsTest.test_unknown_name_only_self",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.DescribeOperationTest.test_start_menu_action_has_readable_label",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.FindShortcutTest.test_alias_match_for_chinese_name",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.FindShortcutTest.test_direct_name_match_wins",
+      "status": "ok",
+      "duration_s": 0.0021,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.FindShortcutTest.test_missing_app_returns_none",
+      "status": "ok",
+      "duration_s": 0.0014,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_blocked_app_rejected_for_start_menu_action",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_common_words_not_overblocked",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_friendly_name_passes",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_localized_shell_names_blocked",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_computer_use_startmenu.StartMenuActionGuardTest.test_shortcut_target_recheck_blocks_terminal",
+      "status": "ok",
+      "duration_s": 0.0003,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.DesktopTaskBudgetTest.test_configured_desktop_budget_is_respected_but_not_below_generic",
+      "status": "ok",
+      "duration_s": 0.0021,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.DesktopTaskBudgetTest.test_desktop_prompt_gets_wider_budget",
+      "status": "ok",
+      "duration_s": 0.0013,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.DesktopTaskBudgetTest.test_read_only_prompt_keeps_generic_budget",
+      "status": "ok",
+      "duration_s": 0.001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.GuardExecuteWiringTest.test_sixth_repeat_is_not_executed",
+      "status": "ok",
+      "duration_s": 0.0257,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.GuardExecuteWiringTest.test_third_repeat_gets_advice_in_tool_result",
+      "status": "ok",
+      "duration_s": 0.0191,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.KeepRecentScreenshotsConfigTest.test_configured_value",
+      "status": "ok",
+      "duration_s": 0.0011,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.KeepRecentScreenshotsConfigTest.test_default_is_one",
+      "status": "ok",
+      "duration_s": 0.0011,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.KeepRecentScreenshotsConfigTest.test_garbage_value_falls_back",
+      "status": "ok",
+      "duration_s": 0.0013,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.KeepRecentScreenshotsConfigTest.test_negative_disables",
+      "status": "ok",
+      "duration_s": 0.001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.KeepRecentScreenshotsConfigTest.test_zero_is_treated_as_one",
+      "status": "ok",
+      "duration_s": 0.001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_different_text_inputs_are_not_a_loop",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_distant_clicks_do_not_count_as_loop",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_nearby_repeats_warn_then_block",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_new_batch_resets_history",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_non_desktop_tools_are_ignored",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_observation_actions_are_not_tracked",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.RepeatGuardTest.test_same_key_presses_count_as_loop",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_chained_request_is_split_in_order",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_connectors_are_split",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_manual_card_without_subgoals_still_gets_guidance",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_quick_card_carries_subgoals_into_prompt",
+      "status": "ok",
+      "duration_s": 0.0032,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_serialisation_keeps_subgoals",
+      "status": "ok",
+      "duration_s": 0.0044,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_short_fragments_are_dropped",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.SplitSubgoalsTest.test_single_goal_returns_empty",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.TrimMiddlewareWiringTest.test_handler_receives_trimmed_messages",
+      "status": "ok",
+      "duration_s": 0.0019,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.TrimMiddlewareWiringTest.test_no_images_passes_request_through",
+      "status": "ok",
+      "duration_s": 0.0016,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.TrimScreenshotHistoryTest.test_fewer_images_than_keep_is_noop",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.TrimScreenshotHistoryTest.test_negative_keep_disables_trimming",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.TrimScreenshotHistoryTest.test_only_recent_images_are_kept",
+      "status": "ok",
+      "duration_s": 0.0002,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_long_task_desktop.TrimScreenshotHistoryTest.test_original_messages_are_not_mutated",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_edit_reuses_existing_screenshot_without_recopying",
+      "status": "ok",
+      "duration_s": 0.007,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_empty_skill_name_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0016,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_mark_skill_used_increments_count",
+      "status": "ok",
+      "duration_s": 0.0033,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_same_name_save_updates_instead_of_duplicating",
+      "status": "ok",
+      "duration_s": 0.0049,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_save_get_list_and_copy_screenshots",
+      "status": "ok",
+      "duration_s": 0.0107,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryTest.test_steps_are_human_readable_and_do_not_keep_typed_secret",
+      "status": "ok",
+      "duration_s": 0.0017,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_bad_fields_do_not_crash",
+      "status": "ok",
+      "duration_s": 0.0028,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_derive_verify_from_file_operations",
+      "status": "ok",
+      "duration_s": 0.002,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_description_only_mention_does_not_match",
+      "status": "ok",
+      "duration_s": 0.0032,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_editing_steps_keeps_goals_intents_verify",
+      "status": "ok",
+      "duration_s": 0.0037,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_intents_skip_observation_actions",
+      "status": "ok",
+      "duration_s": 0.0019,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_legacy_skill_is_migrated",
+      "status": "ok",
+      "duration_s": 0.0025,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_match_by_containment_alias_and_negative",
+      "status": "ok",
+      "duration_s": 0.0045,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_match_respects_limit",
+      "status": "ok",
+      "duration_s": 0.0049,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_reference_lines_and_text",
+      "status": "ok",
+      "duration_s": 0.0028,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_split_candidates_by_subgoals",
+      "status": "ok",
+      "duration_s": 0.0021,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_split_single_goal_returns_one_candidate",
+      "status": "ok",
+      "duration_s": 0.002,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_skill_library.SkillLibraryV2Test.test_split_without_operations_is_safe",
+      "status": "ok",
+      "duration_s": 0.0018,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AgentConfigBlockTest.test_set_config_value_only_touches_target_key",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AgentConfigBlockTest.test_update_block_preserves_comments_and_other_keys",
+      "status": "ok",
+      "duration_s": 0.0023,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_audit_record_contains_batch_and_approver_fields",
+      "status": "ok",
+      "duration_s": 0.0046,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_command_exit_code_is_checked",
+      "status": "ok",
+      "duration_s": 0.0047,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_copy_content_mismatch_is_flagged",
+      "status": "ok",
+      "duration_s": 0.0062,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.AuditAndVerificationTest.test_desktop_action_is_marked_unconfirmed",
+      "status": "ok",
+      "duration_s": 0.0037,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BatchRollbackTest.test_append_rollback_truncates_to_previous_size",
+      "status": "ok",
+      "duration_s": 0.0171,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BatchRollbackTest.test_permanent_delete_is_reported_as_irreversible",
+      "status": "ok",
+      "duration_s": 0.0178,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BatchRollbackTest.test_whole_batch_rollback_restores_files",
+      "status": "ok",
+      "duration_s": 0.0388,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BudgetAndStopTest.test_emergency_stop_blocks_and_can_be_cleared",
+      "status": "ok",
+      "duration_s": 0.005,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BudgetAndStopTest.test_step_limit_blocks_next_tool",
+      "status": "ok",
+      "duration_s": 0.0156,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.BudgetAndStopTest.test_task_stopped_cannot_start_until_cleared",
+      "status": "ok",
+      "duration_s": 0.0078,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.CopyMoveSuffixTest.test_copy_to_executable_suffix_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0073,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.CopyMoveSuffixTest.test_directory_copy_with_executable_inside_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0077,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.CopyMoveSuffixTest.test_move_to_executable_suffix_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0083,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_approval_context_survives_module_reload",
+      "status": "ok",
+      "duration_s": 0.015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_bound_token_in_reloaded_module_still_executes",
+      "status": "ok",
+      "duration_s": 0.0453,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_budget_stop_short_circuits_without_calling_model",
+      "status": "ok",
+      "duration_s": 0.0214,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_dummy_token_is_rejected_not_just_checked_for_presence",
+      "status": "ok",
+      "duration_s": 0.0344,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_expired_persisted_approval_is_ignored",
+      "status": "ok",
+      "duration_s": 0.004,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_r2_action_without_pin_token_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0323,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_rejected_action_does_not_consume_step",
+      "status": "ok",
+      "duration_s": 0.0284,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_step_is_consumed_only_after_approval",
+      "status": "ok",
+      "duration_s": 0.0365,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuardMiddlewareOrderTest.test_valid_bound_token_is_accepted",
+      "status": "ok",
+      "duration_s": 0.0424,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuiSemanticForbiddenTest.test_gui_mutation_is_blocked_when_card_forbids_send_or_pay",
+      "status": "ok",
+      "duration_s": 0.0037,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.GuiSemanticForbiddenTest.test_gui_mutation_passes_when_semantic_forbidden_is_removed",
+      "status": "ok",
+      "duration_s": 0.0034,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ProjectProtectionTest.test_command_cannot_touch_project_protected_paths",
+      "status": "ok",
+      "duration_s": 0.005,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ProjectProtectionTest.test_project_protected_path_cannot_be_written",
+      "status": "ok",
+      "duration_s": 0.007,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ProjectProtectionTest.test_project_protected_paths_are_recognized",
+      "status": "ok",
+      "duration_s": 0.006,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ReadOnlyModeTest.test_command_and_desktop_input_are_blocked",
+      "status": "ok",
+      "duration_s": 0.0048,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.ReadOnlyModeTest.test_write_is_blocked_and_read_still_works",
+      "status": "ok",
+      "duration_s": 0.0069,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_approval_dir_is_blocked_for_agent_tools",
+      "status": "ok",
+      "duration_s": 0.1487,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_approval_token_is_bound_to_thread_batch_and_actions",
+      "status": "ok",
+      "duration_s": 0.1507,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_approval_token_is_signed_and_verifiable",
+      "status": "ok",
+      "duration_s": 0.1511,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_pin_hash_never_contains_plaintext",
+      "status": "ok",
+      "duration_s": 0.4363,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SecondSubjectTest.test_weak_pin_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.SingleTaskLockTest.test_second_task_is_rejected_then_allowed_after_release",
+      "status": "ok",
+      "duration_s": 0.0047,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardCoercionTest.test_from_dict_accepts_task_card_object",
+      "status": "ok",
+      "duration_s": 0.006,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardCoercionTest.test_from_dict_ignores_non_mapping",
+      "status": "ok",
+      "duration_s": 0.0037,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardCoercionTest.test_invalid_type_raises_readable_error",
+      "status": "ok",
+      "duration_s": 0.0035,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardCoercionTest.test_resume_accepts_task_card_object",
+      "status": "ok",
+      "duration_s": 0.0211,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardCoercionTest.test_start_task_accepts_duck_typed_card",
+      "status": "ok",
+      "duration_s": 0.0123,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardCoercionTest.test_start_task_accepts_task_card_object",
+      "status": "ok",
+      "duration_s": 0.0141,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_machine_check_failure_is_not_completion",
+      "status": "ok",
+      "duration_s": 0.0044,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_machine_check_invalid_path_is_rejected_by_card",
+      "status": "ok",
+      "duration_s": 0.0048,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_machine_checks_pass_with_deterministic_evidence",
+      "status": "ok",
+      "duration_s": 0.0073,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_quick_card_can_carry_skill_steps",
+      "status": "ok",
+      "duration_s": 0.0067,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_quick_card_needs_no_form_and_keeps_gui_actions",
+      "status": "ok",
+      "duration_s": 0.0066,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_quick_task_without_machine_checks_can_finish",
+      "status": "ok",
+      "duration_s": 0.0149,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_readonly_card_can_omit_machine_check",
+      "status": "ok",
+      "duration_s": 0.0046,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_rollback_boundary_is_explicit",
+      "status": "ok",
+      "duration_s": 0.0037,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_task_card_prompt_contains_machine_checks_and_boundary",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_verification_failure_marks_task_not_finished",
+      "status": "ok",
+      "duration_s": 0.0135,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardMachineCheckTest.test_write_card_can_omit_machine_check",
+      "status": "ok",
+      "duration_s": 0.0043,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_action_not_allowed_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0036,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_output_outside_workspace_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0048,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_side_effect_without_task_card_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0041,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_validation_requires_success_criteria_and_allowed_action",
+      "status": "ok",
+      "duration_s": 0.0052,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_write_inside_output_location_passes",
+      "status": "ok",
+      "duration_s": 0.0042,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardPolicyTest.test_write_outside_output_location_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0045,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardRequiredTest.test_new_task_without_card_is_rejected",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_small_business_guard.TaskCardRequiredTest.test_quick_card_can_start_a_task",
+      "status": "ok",
+      "duration_s": 0.0147,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_append_is_verified_against_tail",
+      "status": "ok",
+      "duration_s": 0.0129,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_claimed_write_without_file_is_flagged",
+      "status": "ok",
+      "duration_s": 0.0022,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_enrich_keeps_untouched_when_not_applicable",
+      "status": "ok",
+      "duration_s": 0.0015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_enrich_marks_failed_verification_as_error",
+      "status": "ok",
+      "duration_s": 0.0022,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_failed_tool_result_is_not_reverified",
+      "status": "ok",
+      "duration_s": 0.0015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_delete_is_verified",
+      "status": "ok",
+      "duration_s": 0.008,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_move_is_verified",
+      "status": "ok",
+      "duration_s": 0.0111,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_real_write_is_verified",
+      "status": "ok",
+      "duration_s": 0.008,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_tool_verification.VerificationOutcomeTest.test_unknown_tool_is_skipped",
+      "status": "ok",
+      "duration_s": 0.0014,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_console_window_refused",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_invisible_window_refused",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_missing_info_refused",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_normal_app_window_allowed",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_own_process_refused",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_protected_process_refused",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_registry_window_refused_by_title",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_self_confirmation_page_refused",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.GuardUiTargetTest.test_unrelated_browser_window_allowed",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.OcrMappingTest.test_empty_text_is_dropped",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.OcrMappingTest.test_scale_and_offset",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.OcrMatchTest.test_index_out_of_range",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.OcrMatchTest.test_index_selects_nth_match",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.OcrMatchTest.test_match_is_case_insensitive_and_substring",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.OcrMatchTest.test_no_match_reports_sample",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.RegionScreenshotNoteTest.test_format_result_carries_region_note",
+      "status": "ok",
+      "duration_s": 0.0181,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.RegionScreenshotNoteTest.test_fullscreen_hint_keeps_old_wording",
+      "status": "ok",
+      "duration_s": 0.0015,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.RegionScreenshotNoteTest.test_region_note_contains_offset_and_formula",
+      "status": "ok",
+      "duration_s": 0.0013,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.RegionScreenshotNoteTest.test_region_screenshot_hint_has_offset",
+      "status": "ok",
+      "duration_s": 0.0014,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionOrderTest.test_bridge_unavailable_reports_cleanly",
+      "status": "ok",
+      "duration_s": 0.0039,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionOrderTest.test_click_on_console_window_never_invokes",
+      "status": "ok",
+      "duration_s": 0.0026,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionOrderTest.test_click_text_checks_window_before_capturing",
+      "status": "ok",
+      "duration_s": 0.0026,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionOrderTest.test_missing_window_gives_actionable_hint",
+      "status": "ok",
+      "duration_s": 0.0024,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionOrderTest.test_set_text_reports_password_field_refusal",
+      "status": "ok",
+      "duration_s": 0.0028,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionOrderTest.test_ui_wait_does_not_leak_screen_content",
+      "status": "ok",
+      "duration_s": 0.0028,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_click_text_index_is_clamped",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ocr_region_accepts_string_and_list",
+      "status": "ok",
+      "duration_s": 0.0001,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ocr_region_rejects_bad_shape",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ui_click_requires_element_target",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ui_set_text_accepts_named_control",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ui_set_text_requires_text",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ui_tree_caps_depth_and_limit",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ui_wait_timeout_is_capped",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_ui_windows_defaults",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiActionParamsTest.test_window_param_is_truncated",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiFormatTest.test_tree_hides_password_and_marks_state",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiFormatTest.test_tree_is_truncated",
+      "status": "ok",
+      "duration_s": 0.0003,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiFormatTest.test_windows_mark_foreground",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiPolicyTest.test_click_text_and_ui_click_need_pin",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    },
+    {
+      "id": "tests.test_ui_actions.UiPolicyTest.test_read_only_set_covers_sensitive_reads_but_not_clicks",
+      "status": "ok",
+      "duration_s": 0.0,
+      "detail": ""
+    }
+  ]
+}
