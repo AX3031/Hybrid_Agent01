@@ -47,6 +47,7 @@ _agent_verify_*/
 # 本地需求文档（不纳入版本管理）
 对OS_GUI_AGNET的初步要求.md
 OS_GUI_AGENT_小企业版实施要求.md
+疑问与回答.md
 
 # 操作系统杂物
 .DS_Store
