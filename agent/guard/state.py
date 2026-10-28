@@ -18,6 +18,7 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -137,11 +138,27 @@ def _stop_file_reason() -> str:
 
 
 def _card_to_dict(card: TaskCard | dict | None) -> dict | None:
+    """把任务卡统一成 dict。
+
+    不能只靠 `isinstance(card, TaskCard)`：Streamlit 热重载会重新执行
+    `task_card` 模块生成新的类对象，而 `state` 还持有旧类引用，于是“同一个
+    TaskCard”判定为 False，走到 `dict(card)` 就报 `'TaskCard' object is not
+    iterable`（真实事故：确认后继续执行时直接失败）。这里按能力判断：
+    有 `to_dict()` 就当任务卡；映射类型就浅拷贝；其它类型给出可读报错，
+    绝不能静默变成 `{}`（那会让任务卡失效、守卫范围变宽）。
+    """
     if card is None:
         return None
-    if isinstance(card, TaskCard):
-        return card.to_dict()
-    return dict(card)
+    to_dict = getattr(card, "to_dict", None)
+    if callable(to_dict):
+        data = to_dict()
+        return dict(data) if isinstance(data, Mapping) else data
+    if isinstance(card, Mapping):
+        return dict(card)
+    raise TypeError(
+        f"任务卡类型不支持：{type(card).__module__}.{type(card).__name__}；"
+        "请传 TaskCard 或 dict。"
+    )
 
 
 def start_task(

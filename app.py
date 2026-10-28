@@ -49,7 +49,8 @@ def _reference_steps_from_state() -> tuple[str, list[str]]:
     if not skill:
         st.session_state.pop("skill_reference_id", None)
         return "", []
-    return skill_id, [str(item) for item in skill.get("steps") or []]
+    # 手动选中的技能也走 v2 参考行：步骤 + 建议动作 + 核对项
+    return skill_id, skill_library.reference_lines(skill)
 
 
 def _remember_last_task(
@@ -256,7 +257,8 @@ def _render_hitl_block(agent: ReactAgent) -> None:
                 thread_id=session_id,
                 pending_actions=actions,
                 batch_id=batch_id or None,
-                task_card=task_card,
+                # 边界统一传 dict：热重载后 TaskCard 类对象可能不是同一个类
+                task_card=task_card.to_dict() if task_card else None,
             )
         )
     except Exception as exc:  # noqa: BLE001 - 界面需要保留现场并允许重试
@@ -433,6 +435,57 @@ def _screenshot_label(path: str) -> str:
     return Path(path).name if path else "不指定"
 
 
+def _render_split_save_block(last: dict, operations: list[dict]) -> None:
+    """按子目标把最近一次任务拆成多条技能。
+
+    解决的实际问题：存一条“打开微信→又发消息”的长技能，下次只说“打开微信”
+    就匹配不上。拆分后每条都有自己的名字与匹配词。
+    """
+    goal = str(last.get("prompt") or "")
+    candidates = skill_library.split_skill_candidates(goal, operations)
+    if len(candidates) < 2:
+        return
+
+    with st.expander(f"按子目标分别保存（{len(candidates)} 条技能）", expanded=False):
+        st.caption(
+            "把一次任务拆成几条技能：以后只说“打开微信”也能命中，不必把整串任务都描述一遍。"
+            "名字与步骤保存后仍可编辑；技能只作提示，不自动执行。"
+        )
+        picked: list[dict] = []
+        for item in candidates:
+            label = f"{item['name']}（{len(item['steps'])} 步）"
+            if st.checkbox(label, value=True, key=f"skill_split::{item['name']}"):
+                picked.append(item)
+        if not st.button(
+            f"保存选中的 {len(picked)} 条技能",
+            key="skill_split_submit",
+            use_container_width=True,
+        ):
+            return
+        if not picked:
+            st.warning("至少选一条再保存。")
+            return
+        saved_names: list[str] = []
+        for item in picked:
+            try:
+                saved = skill_library.save_skill(
+                    name=item["name"],
+                    steps=item["steps"],
+                    goal_match=item["goal_match"],
+                    intents=item["intents"],
+                    verify=item["verify"],
+                    task_card=last.get("card") or {},
+                )
+            except (OSError, ValueError) as exc:
+                st.error(f"保存「{item['name']}」失败：{exc}")
+                return
+            saved_names.append(str(saved.get("name") or item["name"]))
+        st.session_state["skill_flash"] = "已按子目标保存：" + "、".join(saved_names)
+        for item in picked:
+            st.session_state.pop(f"skill_split::{item['name']}", None)
+        st.rerun()
+
+
 def _render_skill_form(last: dict, operations: list[dict], candidates: list[str]) -> None:
     """渲染“保存/编辑技能”表单；同名保存会更新已有技能，不会堆重复。"""
     editing_id = str(st.session_state.get("skill_editing_id") or "")
@@ -441,6 +494,9 @@ def _render_skill_form(last: dict, operations: list[dict], candidates: list[str]
         # 要编辑的技能已被删除（或刷新后会话丢失），退回“保存最近任务”模式。
         st.session_state.pop("skill_editing_id", None)
         editing_id = ""
+
+    if not editing_id and operations:
+        _render_split_save_block(last, operations)
 
     if editing:
         default_name = str(editing.get("name") or "")
@@ -540,6 +596,12 @@ def _render_skill_library_section() -> None:
             "把做过的任务保存成技能：步骤是可编辑的人话摘要，截图会复制到技能库。"
             "复用只是给模型参考，仍要走当前任务卡、人工确认和 PIN。"
             "同名保存视为更新这个技能。"
+        )
+        st.session_state.setdefault("skill_auto_match", True)
+        st.checkbox(
+            "自动参考匹配的技能",
+            key="skill_auto_match",
+            help="按任务目标自动推荐已有技能（只作提示，不自动执行）。不需要时关掉。",
         )
 
         reference_id, _reference_steps = _reference_steps_from_state()
@@ -887,6 +949,8 @@ message_list = st.session_state["message"]
 last_index = len(message_list) - 1
 for index, message in enumerate(message_list):
     st.chat_message(message["role"]).write(message["content"])
+    if message.get("skills"):
+        st.caption("本轮参考技能：" + "、".join(str(item) for item in message["skills"]))
     # 最新一轮的操作记录默认展开，历史记录折叠
     _render_operations(message.get("operations", []), expanded=(index == last_index))
 
@@ -895,6 +959,19 @@ _render_hitl_block(st.session_state["agent"])
 
 if prompt:
     skill_id, reference_steps = _reference_steps_from_state()
+    auto_skills: list[dict] = []
+    if not skill_id and st.session_state.get("skill_auto_match", True):
+        # 没手动选技能时，按目标自动推荐（只作提示；可在侧边栏关闭）
+        auto_skills = skill_library.match_skills(prompt, limit=2)
+        if auto_skills:
+            reference_steps = [
+                line
+                for skill in auto_skills
+                for line in skill_library.reference_lines(skill)
+            ]
+    used_skill_names = [
+        str(item.get("name") or "") for item in auto_skills if item.get("name")
+    ]
     active_card = TaskCard.from_dict(st.session_state.get("task_card"))
     if active_card is None:
         # 默认路径：不要求用户先填表，直接按输入生成快速任务卡。
@@ -913,6 +990,9 @@ if prompt:
 
     if skill_id:
         skill_library.mark_skill_used(skill_id)
+    elif auto_skills:
+        # 只记第一条：避免一次提问把多个技能的“被参考次数”都抬高
+        skill_library.mark_skill_used(str(auto_skills[0].get("id") or ""))
 
     st.chat_message("user").write(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
@@ -923,7 +1003,7 @@ if prompt:
                 st.session_state["agent"].execute_stream(
                     prompt,
                     thread_id=st.session_state["session_id"],
-                    task_card=active_card,
+                    task_card=active_card.to_dict() if active_card else None,
                 )
             )
         except (TaskBusyError, guard_state.TaskStopped) as exc:
@@ -948,6 +1028,7 @@ if prompt:
                 "role": "assistant",
                 "content": content or "（操作已完成，详见下方记录）",
                 "operations": operations,
+                "skills": used_skill_names,
             }
         )
     st.rerun()

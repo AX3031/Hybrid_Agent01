@@ -36,6 +36,9 @@
 - 不要把 UIA/OCR 输出当普通文本直接写日志：`ui_tree`/`ui_windows`/`ocr_text` 是敏感读，审计里要用 `safety.sanitize_tool_result` 脱敏；新增这类动作要同步 `guard/policy.py` 的只读集与 `guard/repeat_guard.py` 的跟踪动作。
 - 不要为了拿控件树去装 `uiautomation`/`pywinauto`/`comtypes`：本机 Python 3.14 没有可用轮子，硬装会破坏环境。控件树与 OCR 统一走 `agent/tools/ui_bridge.py` + `agent/tools/uia_bridge.ps1`（Windows 自带 UIAutomation / WinRT OCR，零依赖）。该脚本必须保持 ASCII 注释（Windows PowerShell 5.1 按 ANSI 读无 BOM 脚本）。
 - 不要让模型自动化“确认页所在窗口”：确认卡片在浏览器里的 Streamlit 页面上，自动点它等于自己批自己；`_UI_SELF_UI_MARKERS` 必须保留对助手自身 pid 与确认页标题的拒绝，免确认动作（如 `ui_wait`）不得回显窗口标题/坐标。
+- 不要用 `isinstance(x, SomeClass)` 判断跨模块传入的对象身份：Streamlit 热重载会重新执行模块、生成新的类对象，而别的模块还持有旧类引用，导致 `isinstance` 为 False（真实事故：`_card_to_dict` 走到 `dict(card)`，确认后继续执行报 `'TaskCard' object is not iterable`）。改用能力判断（`hasattr(x, "to_dict")` / `Mapping`），并在调用边界统一传 dict；判断不了时抛带类型名的 `TypeError`，**不要静默变成 `{}`**（会让任务卡失效、守卫范围变宽）。
+- 不要把技能库改成“自动执行器”：schema 升级（`goal_match`/`intents`/`verify`）只能增加提示信息，技能仍不得绕过当前任务卡、人工确认与 PIN；改 schema 时必须保持 `_normalise_skill()` 向前兼容，旧 `skills.json` 不丢数据；匹配规则不能拿“描述里提到目标”当命中（会造成假阳性，已有用例）。
+- 不要把区域截图当全局截图描述：`screenshot(region=...)` 返回的是局部图片（像素从 0 开始），结果文案必须带上“区域左上角偏移 + 换算公式”（`_region_mapping_note`），否则模型会按局部坐标去点，落在屏幕左上角附近；改动时保留 `tests/test_ui_actions.py::RegionScreenshotNoteTest`。
 
 ## 修改后的文档动作
 
@@ -44,7 +47,7 @@
 - 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`docs/OS_TOOLS.md`、`architecture.svg` 工具层。
 - 新增/删除中间件 → `ARCHITECTURE.md` 5.2/8/11、`architecture.svg` 编排层。
 - 新增/删除文档 → `README.md` 导读/文档地图、`PROJECT_OVERVIEW.md` 第 8 节、本文件阅读顺序。
-- 改任务卡快速卡/技能库 → `agent/guard/task_card.py`、`agent/skill_library.py`、`app.py`、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`docs/small-business-p0/10-任务卡简化与技能库.md`、README/OS_TOOLS/ARCHITECTURE/CHANGELOG。
+- 改任务卡快速卡/技能库 → `agent/guard/task_card.py`、`agent/skill_library.py`（`_normalise_skill`/`match_skills`/`split_skill_candidates`/`reference_lines`）、`app.py`（自动匹配开关、按子目标保存）、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`docs/small-business-p0/10-任务卡简化与技能库.md`、README/OS_TOOLS/ARCHITECTURE/CHANGELOG；改匹配规则要补“描述里提到目标不算命中”的假阳性用例。
 - 新增/修改测试用例或验证脚本 → `tests/`、`scripts/verify_agent_resilience.py`、`scripts/verify_small_business.py`、`docs/agent-resilience/02-验证与交付复盘.md`（用例数与结论要同步）、`docs/small-business-p0/08-交付复盘与验收清单.md`（P0 用例数与证据）、`ARCHITECTURE.md` 13.10、`README.md` 能力表。
 - 改工具失败/重试/结果校验/会话自愈 → `agent/resilience.py`、`agent/tools/verification.py`、`agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` / `_should_retry_tool_error`、`ARCHITECTURE.md` 6.5/11.3/12、`docs/agent-resilience/01`，并补对应用例。
 - 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`docs/OS_TOOLS.md`、`README.md` 能力表、`architecture.svg` 工具层；动作增删改 `agent/tools/computer_use.py` 的 `_ACTION_PARAMS`/`_REQUIRED_PARAMS`/工具描述与 `agent/tools/safety.py` 的 `describe_operation`/`operation_risk`/`operation_target`。控件级/OCR 动作还需 `agent/tools/ui_bridge.py`、`agent/tools/uia_bridge.ps1`（保持 ASCII 注释，PS 5.1 按 ANSI 读无 BOM 脚本）、`_guard_ui_target`、`guard/policy.py` 只读集、`guard/repeat_guard.py` 跟踪动作、`tests/test_ui_actions.py`。

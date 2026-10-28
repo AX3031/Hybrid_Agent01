@@ -2,7 +2,7 @@
 
 基于 **LangChain 1.x `create_agent`（LangGraph）** 构建的工具调用型本地电脑助手：支持系统信息查询、文件读写与搜索、进程查看、命令执行（需确认）、截屏与鼠标键盘/窗口控制（需确认），以及 Streamlit 对话界面。
 
-> 小企业版 P0 守卫层已接入：任务卡（默认自动生成，可选机器判据）、任务技能库（步骤/截图复用）、只读总开关、批次整批回滚与回滚边界、预算急停、审计回放、单任务锁、第二主体审批口令（PIN 验签）。入口文档见 [docs/small-business-p0/00-进度备忘录.md](docs/small-business-p0/00-进度备忘录.md)。
+> 小企业版 P0 守卫层已接入：任务卡（默认自动生成，可选机器判据）、任务技能库（一条技能 = 一个子目标，带匹配词/建议动作/核对项，支持按目标自动推荐）、只读总开关、批次整批回滚与回滚边界、预算急停、审计回放、单任务锁、第二主体审批口令（PIN 验签）。入口文档见 [docs/small-business-p0/00-进度备忘录.md](docs/small-business-p0/00-进度备忘录.md)。
 >
 > 这是一份面向开发者的项目入口文档。5 分钟速览见 [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)；深入原理、配置项、扩展步骤与技术债见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -93,7 +93,7 @@
 | 任务卡（目标/判据/机器判据/范围/预算） | ✅ 已接入 | `agent/guard/task_card.py` + `app.py` 侧边栏；**默认按输入自动生成快速卡**，需要时再打开高级表单；机器判据可选；“打开微信，登录后给某人发个你好”这类**一连串要求会自动拆成子目标**逐项推进 |
 | 原地打转拦截 | ✅ 已接入 | `agent/guard/repeat_guard.py`：同一区域反复做同一动作时第 3 次提醒换策略、第 6 次拒绝执行，避免在“找图标”上反复烧预算 |
 | 截图历史裁剪 | ✅ 已接入 | `agent/tools/middleware.py` 的 `trim_screenshot_history`：只把最近 N 张截图（默认 1）发给模型，历史图片换成文字占位；审计与界面仍保留原图 |
-| 任务技能库（步骤/截图复用） | ✅ 已接入 | `agent/skill_library.py` + 侧边栏「任务技能库」；保存人话步骤、关键截图、最终成果截图；**同名保存视为更新**，可随时「编辑此技能」改名/改步骤/换截图；复用只作提示，不自动执行 |
+| 任务技能库（步骤/截图复用） | ✅ 已接入 | `agent/skill_library.py` + 侧边栏「任务技能库」；**一条技能 = 一个可复用子目标**（“打开微信，再发消息”会拆成两条），带匹配词/建议动作/核对项；按任务目标**自动推荐**（可关，只作提示不自动执行）；同名保存视为更新，可随时编辑/删除 |
 | 任务结束机器判据 | ✅ 已接入 | `agent/guard/criteria.py` + `ReactAgent` 的 `verification` 事件；未通过/未确认/工具失败不能算完成；未配置判据按人工确认验收 |
 | 回滚边界说明 | ✅ 已接入 | `agent/guard/scope.py`；任务卡、确认卡片、文档都明确“命令/GUI/永久删除不可回滚” |
 | 只读总开关 | ✅ 已接入 | `config/agent.yml` 的 `read_only` + 侧边栏开关 + `agent/guard/policy.py` |
@@ -104,7 +104,7 @@
 | 审计与回放 | ✅ 已接入 | `utils/audit_logger.py` 扩展字段 + 批次回放 UI |
 | 单任务全局锁 | ✅ 已接入 | `agent/guard/lock.py` + `ReactAgent` 的 `task_lock` |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
-| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，168 条，其中 P0 守卫层 53 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
+| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，190 条，其中 P0 守卫层 59 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
 | 模型调用前状态日志 | ✅ 已接入 | `agent/tools/middleware.py` → `log_before_model` |
 | 报告场景动态提示词 | ✅ 已接入 | `fill_context_for_report` + `report_prompt_switch` |
 | 联网搜索（百度） | ✅ 已接入 | `agent/tools/agent_tools.py` → `web_search_baidu` |
@@ -225,7 +225,7 @@ uv run streamlit run app.py
 
 - **安全开关**：只读模式、急停/解除急停、审批口令状态；
 - **任务卡（可选，默认自动）**：默认按输入生成快速卡；需要限定目录、预算、动作或机器判据时，再打开“自定义任务卡（高级）”；
-- **任务技能库**：把最近任务保存为可复用的步骤 + 截图；下次作为提示参考，不自动执行；
+- **任务技能库**：把一次任务按子目标拆成多条技能（步骤 + 匹配词 + 建议动作 + 核对项），下次描述同类任务会自动带上参考（可关），保存截图副本；不自动执行；
 - **批次与回滚**：查看最近任务的回放，勾选确认后一键撤销整批文件改动。
 
 记忆方式的说明：
@@ -271,7 +271,7 @@ project2/
 ├── agent/
 │   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流、会话自愈、单任务锁入口
 │   ├── resilience.py           # ✅ 悬空 tool_call 的识别与修复
-│   ├── skill_library.py        # ✅ 任务技能库：步骤/截图/复用参考
+│   ├── skill_library.py        # ✅ 任务技能库：子目标拆分/匹配/步骤/截图（schema v2）
 │   ├── guard/                  # ✅ 小企业版 P0 守卫层
 │   │   ├── task_card.py        # ✅ 任务卡结构 / 机器判据校验 / 提示词
 │   │   ├── criteria.py         # ✅ 机器判据解析与执行
@@ -365,7 +365,7 @@ project2/
 | 调整结果校验范围 | `agent/tools/verification.py` 的 `_CHECKERS` 与 `_SUCCESS_PREFIXES` |
 | 只读模式 | 侧边栏「安全开关」，或 `config/agent.yml` 的 `read_only`；临时演练用 `AGENT_READ_ONLY=1` |
 | 任务卡 | 侧边栏「任务卡（可选，默认自动）」；默认快速卡，只有需要时才打开“自定义任务卡（高级）”；机器判据可选 |
-| 任务技能库 | 侧边栏「任务技能库」；数据在 `data/task_skills/`（git 忽略） |
+| 任务技能库 | 侧边栏「任务技能库」；数据在 `data/task_skills/`（git 忽略）；自动匹配开关也在那里 |
 | 任务预算默认值 | `config/agent.yml` 的 `task_defaults`（步数/分钟/费用；`desktop_*` 为桌面类任务的单独默认值） |
 | 发给模型的历史截图保留几张 | `config/agent.yml` 的 `vision_history.keep_recent_screenshots`（默认 1；`-1` 不裁剪） |
 | 重复动作拦截阈值 | `agent/guard/repeat_guard.py` 的 `_SOFT_REPEATS` / `_HARD_REPEATS` / `_RADIUS` |
@@ -405,12 +405,13 @@ project2/
 15. **费用上限依赖 usage_metadata**：供应商不返回 usage 时只记录调用次数，不估算费用；此时依赖步数/时长上限。
 16. **单任务锁是单机文件锁**：只对同一台机器、同一个状态目录生效；不是分布式锁；等待人工确认的间隙会释放锁，另一个任务理论上可插队。
 17. **批次回滚只覆盖文件类写操作**：`run_command` 内部修改的文件、`open_path` 和 `computer_use` 的应用内状态不在回滚范围；界面和任务卡会明确显示。
-18. **任务卡默认自动，但技能库不是自动工作流**：界面会按输入生成快速卡，`start_task` 仍要求有卡；机器判据可选，未配置时按人工确认验收。技能库只保存步骤/截图，无法保证旧步骤在新软件版本上仍适用。
+18. **任务卡默认自动，但技能库不是自动工作流**：界面会按输入生成快速卡，`start_task` 仍要求有卡；机器判据可选，未配置时按人工确认验收。技能库保存的是“子目标 + 步骤 + 匹配词”，仍无法保证旧步骤在新软件版本上适用。
 19. **秘密文件读取仍未拦截**：当前只禁止写入项目源码/配置/日志/技能库等；`.env`、`*.key`、`*.pem`、凭据文件仍可能被 `read_text_file`/`search_text` 读取。已确认应默认拒绝秘密文件读取，业务确需时再走独立敏感读取确认 + PIN + 脱敏，但尚未实现；敏感密钥最好移出工作区。
 20. **GUI 语义禁令有边界**：只有自定义任务卡保留“发送/提交/付款”时才会拦 GUI 输入类动作；快速任务卡默认不包含这些词。`run_command`/`open_path` 内部是否发送/付款，系统无法语义判断，仍靠人工确认 + PIN。
 21. **技能库不是自动工作流，也没有加密**：`data/task_skills/` 保存脱敏步骤和截图副本；步骤会省略 `type_text`/`clipboard_set`、命令原文和 URL，但截图可能含业务/隐私信息；Agent 不能写技能库，本机用户仍可读，保存前请自行确认截图内容。
 22. **桌面任务预算已主动放宽**：要动鼠标键盘的快速任务默认上限从 30 步/2 元提到 60 步/5 元（否则一连串要求会被熔断）。这是“单次误操作成本上限提高”的权衡，不需要这么高请在 `config/agent.yml` 调低 `task_defaults.desktop_*`。
 23. **确认链不能反过来被自动化绕过**：控件级动作会拒绝终端/脚本宿主/注册表/系统关键进程，也拒绝助手自身窗口与开着确认页（Streamlit）的浏览器；`ui_wait` 这类免确认动作只回答“等到没等到”，不回显窗口标题与坐标。
+24. **技能自动匹配只是启发式**：按字符 2-gram 与标题包含关系推荐，可能推荐不相关技能（可在侧边栏关闭）；按子目标自动拆分的归属也是默认值，需要在界面上核对；技能同名会互相覆盖（同名保存视为更新）。
 
 完整清单与修复建议见 [docs/ARCHITECTURE.md#12-已知问题与技术债](docs/ARCHITECTURE.md#12-已知问题与技术债)。
 
@@ -438,7 +439,7 @@ project2/
 | [docs/small-business-p0/07-第二主体审批口令.md](docs/small-business-p0/07-第二主体审批口令.md) | PIN 哈希、签名凭证、审批流程、威胁边界 |
 | [docs/small-business-p0/08-交付复盘与验收清单.md](docs/small-business-p0/08-交付复盘与验收清单.md) | P0 验收对照、用例结果、反思、runbook、下一步 |
 | [docs/small-business-p0/09-安全边界与机器判据.md](docs/small-business-p0/09-安全边界与机器判据.md) | 项目写保护、审批验签、复制/移动后缀、GUI 语义禁令、任务卡全覆盖、机器判据、回滚边界 |
-| [docs/small-business-p0/10-任务卡简化与技能库.md](docs/small-business-p0/10-任务卡简化与技能库.md) | 快速任务卡、机器判据可选、技能库步骤/截图、复用方式与安全边界 |
+| [docs/small-business-p0/10-任务卡简化与技能库.md](docs/small-business-p0/10-任务卡简化与技能库.md) | 快速任务卡、机器判据可选、技能库 v2（按子目标拆分/自动匹配/建议动作与核对项）、复用方式与安全边界 |
 | [docs/06-长期改造经验与方法论.md](docs/06-长期改造经验与方法论.md) | 长任务改造方法论：任务契约、评估尺、阶段门、复盘与反幻觉 |
 | [docs/agent-resilience/00-进度备忘录.md](docs/agent-resilience/00-进度备忘录.md) | 循环韧性改造的进度、决策与已知缺口 |
 | [docs/agent-resilience/01-入门讲解-失败重试与结果验证.md](docs/agent-resilience/01-入门讲解-失败重试与结果验证.md) | 入门讲解：ReAct 循环、失败四根因、重试规则、结果校验、会话自愈 |

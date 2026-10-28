@@ -296,6 +296,64 @@ class UiActionOrderTest(unittest.TestCase):
         self.assertIn("不可用", result)
 
 
+class RegionScreenshotNoteTest(unittest.TestCase):
+    """区域截图的坐标说明：必须带区域偏移，否则模型会把局部坐标当全局坐标。"""
+
+    class _FakeShot:
+        def __init__(self, data: dict, image=None):
+            self.data = data
+            self.image = image
+            self.success = True
+
+        def message_for_model(self) -> str:
+            return "Screenshot captured"
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from shutil import rmtree
+        from PIL import Image
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="region_shot_")).resolve()
+        self.addCleanup(lambda: rmtree(self.tmp, ignore_errors=True))
+        self.image_path = self.tmp / "region.png"
+        Image.new("RGB", (300, 200), "white").save(self.image_path)
+
+    def test_region_note_contains_offset_and_formula(self):
+        note = computer_use._region_mapping_note([1324, 969, 300, 200], 300, 200, 1.0)
+        self.assertIn("x=1324", note)
+        self.assertIn("y=969", note)
+        self.assertIn("1324 + 图片x", note)
+        self.assertIn("969 + 图片y", note)
+        self.assertIn("不要把图片像素直接当屏幕坐标", note)
+
+    def test_region_screenshot_hint_has_offset(self):
+        result = self._FakeShot(
+            {"path": str(self.image_path), "width": 300, "height": 200}
+        )
+        _uri, hint = computer_use._screenshot_image_uri(result, [1324, 969, 300, 200])
+        self.assertIn("x=1324", hint)
+        self.assertIn("y=969", hint)
+        self.assertIn("局部截图", hint)
+
+    def test_fullscreen_hint_keeps_old_wording(self):
+        result = self._FakeShot(
+            {"path": str(self.image_path), "width": 300, "height": 200}
+        )
+        _uri, hint = computer_use._screenshot_image_uri(result, None)
+        self.assertIn("与屏幕坐标一致", hint)
+        self.assertNotIn("局部截图", hint)
+
+    def test_format_result_carries_region_note(self):
+        result = self._FakeShot(
+            {"path": str(self.image_path), "width": 300, "height": 200}, image=object()
+        )
+        blocks = computer_use._format_result("screenshot", result, region=[1324, 969, 300, 200])
+        text = blocks[0]["text"]
+        self.assertIn("x=1324", text)
+        self.assertIn("不要把图片像素直接当屏幕坐标", text)
+
+
 class UiPolicyTest(unittest.TestCase):
     def test_read_only_set_covers_sensitive_reads_but_not_clicks(self):
         for action in ("ui_windows", "ui_tree", "ui_wait", "ocr_text"):

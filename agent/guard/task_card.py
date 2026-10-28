@@ -144,7 +144,11 @@ class TaskCard:
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "TaskCard | None":
-        if not data:
+        # 也接受已经是 TaskCard 的对象（热重载后可能不是同一个类，不靠 isinstance）
+        to_dict = getattr(data, "to_dict", None)
+        if callable(to_dict):
+            data = to_dict()
+        if not data or not isinstance(data, dict):
             return None
         defaults = task_defaults()
         return cls(

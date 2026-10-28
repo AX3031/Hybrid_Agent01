@@ -869,5 +869,65 @@ class AgentConfigBlockTest(unittest.TestCase):
         self.assertTrue(guard_config.read_agent_config()["read_only"])
 
 
+class TaskCardCoercionTest(GuardTestBase):
+    """任务卡对象 / dict / 鸭子对象都要能进守卫层。
+
+    真实事故：Streamlit 热重载后 `isinstance(card, TaskCard)` 为 False，
+    `_card_to_dict` 走到 `dict(card)`，确认后继续执行直接报
+    `'TaskCard' object is not iterable`。
+    """
+
+    class _DuckCard:
+        """长得像任务卡、但不是同一个类（模拟热重载后的旧/新类）。"""
+
+        def __init__(self, data: dict):
+            self._data = data
+
+        def to_dict(self) -> dict:
+            return dict(self._data)
+
+    def test_start_task_accepts_task_card_object(self):
+        card = self.make_card()
+        task = guard_state.start_task("coerce-1", card, batch_id="BCOERCE-1")
+        self.assertIsInstance(task.card, dict)
+        self.assertEqual(task.card["goal"], card.goal)
+        self.assertEqual(guard_state.current_card().goal, card.goal)
+        guard_state.end_task()
+
+    def test_start_task_accepts_duck_typed_card(self):
+        card = self.make_card()
+        duck = self._DuckCard(card.to_dict())
+        task = guard_state.start_task("coerce-2", duck, batch_id="BCOERCE-2")
+        self.assertEqual(task.card["name"], card.name)
+        guard_state.end_task()
+
+    def test_resume_accepts_task_card_object(self):
+        card = self.make_card()
+        guard_state.start_task("coerce-3", card, batch_id="BCOERCE-3")
+        guard_state.pause_task()
+        # 模拟“确认后继续”：快照已在盘上，再次传对象进来
+        task = guard_state.start_task("coerce-3", card, batch_id="BCOERCE-3", resume=True)
+        self.assertEqual(task.batch_id, "BCOERCE-3")
+        self.assertEqual(task.card["goal"], card.goal)
+        guard_state.end_task()
+
+    def test_invalid_type_raises_readable_error(self):
+        with self.assertRaises(TypeError) as ctx:
+            guard_state.start_task("coerce-4", 123, batch_id="BCOERCE-4")
+        message = str(ctx.exception)
+        self.assertIn("任务卡类型不支持", message)
+        self.assertIn("int", message)
+
+    def test_from_dict_accepts_task_card_object(self):
+        card = self.make_card()
+        restored = TaskCard.from_dict(card)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.goal, card.goal)
+
+    def test_from_dict_ignores_non_mapping(self):
+        self.assertIsNone(TaskCard.from_dict([]))
+        self.assertIsNone(TaskCard.from_dict("not a card"))
+
+
 if __name__ == "__main__":
     unittest.main()

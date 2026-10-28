@@ -1253,26 +1253,62 @@ def _tool_instance(action: str) -> Any:
     return tool_class() if tool_class else None
 
 
-def _screenshot_image_uri(result: Any) -> tuple[str, str]:
+def _region_mapping_note(region: list[int], image_w: int, image_h: int, scale: float) -> str:
+    """区域截图的坐标换算说明。
+
+    区域截图返回的是一块“局部图片”，图片像素从 (0,0) 开始；如果直接把它当
+    屏幕坐标去点，就会落到屏幕左上角附近（真实事故：小窗口在右下角，模型按
+    裁剪图坐标点击，点到了左上角）。所以必须显式给出偏移与比例。
+    """
+    x, y, w, h = (int(value) for value in region)
+    sx = w / image_w if image_w else 1.0
+    sy = h / image_h if image_h else 1.0
+    scale = scale or 1.0
+    if abs(sx - 1.0) > 1e-6 or abs(sy - 1.0) > 1e-6:
+        factor = f"x×{sx:.4f}、y×{sy:.4f}"
+    else:
+        factor = f"×{scale:.4f}"
+    return (
+        f"这是区域 [x={x}, y={y}, w={w}, h={h}] 的局部截图，图片 {image_w}x{image_h}；"
+        f"屏幕坐标 = ({x} + 图片x {factor}, {y} + 图片y {factor})。"
+        "不要把图片像素直接当屏幕坐标；要点文字/控件优先用 ocr_text / click_text / ui_tree。"
+    )
+
+
+def _screenshot_image_uri(result: Any, region: list[int] | None = None) -> tuple[str, str]:
     """返回 (data_uri, 尺寸提示)。
 
     OmniPilot 默认把截图缩到最长边 1568px；如果直接把缩放图发给模型，模型按图片
     像素估出来的坐标会和真实屏幕坐标不一致。这里优先读 OmniPilot 落盘的原图，
     让图片像素与屏幕一一对应；超大屏（如 4K）才回退到缩放图，并明确给出比例。
+
+    `region` 不为空时额外给出“区域左上角偏移”，否则区域截图会被误当成全局坐标。
     """
     data = result.data or {}
     width = int(data.get("width") or 0)
     height = int(data.get("height") or 0)
     path = data.get("path")
+    region = region if isinstance(region, list) and len(region) == 4 else None
+
+    def _note(image_w: int, image_h: int, target_w: int, target_h: int) -> str:
+        if region:
+            scale = (target_w / image_w) if image_w and target_w else 1.0
+            return _region_mapping_note(region, image_w, image_h, scale)
+        if image_w != target_w or image_h != target_h:
+            scale = (target_w / image_w) if image_w and target_w else 1.0
+            return (
+                f"图片已缩小到 {image_w}x{image_h}，屏幕实际为 {target_w}x{target_h}；"
+                f"点击坐标 = 图片坐标 × {scale:.4f}。"
+            )
+        return (
+            f"图片为原始分辨率 {image_w}x{image_h}，与屏幕坐标一致，可直接按图片像素估坐标。"
+        )
 
     if path and width and height and width * height <= _MAX_FULL_IMAGE_PIXELS:
         try:
             raw = Path(path).read_bytes()
             encoded = base64.b64encode(raw).decode("ascii")
-            return (
-                f"data:image/png;base64,{encoded}",
-                f"图片为原始分辨率 {width}x{height}，与屏幕坐标一致，可直接按图片像素估坐标。",
-            )
+            return (f"data:image/png;base64,{encoded}", _note(width, height, width, height))
         except OSError:
             pass
 
@@ -1282,27 +1318,20 @@ def _screenshot_image_uri(result: Any) -> tuple[str, str]:
 
         with Image.open(io.BytesIO(result.image.raw_bytes())) as image:
             scaled_width, scaled_height = image.size
-        if width and scaled_width:
-            scale = width / scaled_width
-            hint = (
-                f"图片已缩小到 {scaled_width}x{scaled_height}，屏幕实际为 {width}x{height}；"
-                f"点击坐标 = 图片坐标 × {scale:.4f}。"
-            )
-        else:
-            hint = f"图片已缩小到 {scaled_width}x{scaled_height}，点击前请用 screen_size 核对分辨率。"
+        hint = _note(scaled_width, scaled_height, width or scaled_width, height or scaled_height)
     except Exception:
         hint = "图片可能已缩小；点击前请用 screen_size 核对分辨率。"
     return uri, hint
 
 
-def _format_result(action: str, result: Any) -> str | list[dict]:
+def _format_result(action: str, result: Any, region: list[int] | None = None) -> str | list[dict]:
     """把 OmniPilot 的 ToolResult 转成 LangChain 可接受的工具输出。"""
     text = result.message_for_model()
     if not result.success:
         return _fail(result.error or text or "未知错误")
 
     if action == "screenshot" and result.image is not None:
-        uri, size_hint = _screenshot_image_uri(result)
+        uri, size_hint = _screenshot_image_uri(result, region)
         data = result.data if isinstance(result.data, dict) else {}
         screenshot_path = str(data.get("path") or "").strip()
         path_note = f"\n截图文件：{screenshot_path}" if screenshot_path else ""
@@ -1747,7 +1776,7 @@ def computer_use(
     except Exception as exc:  # pragma: no cover - OmniPilot 内部已捕获大多数异常
         logger.error(f"[computer_use]动作 {action} 异常：{exc}")
         return _fail(f"{type(exc).__name__}: {exc}")
-    formatted = _format_result(action, result)
+    formatted = _format_result(action, result, region=prepared.get("region"))
 
     # app_open 在 Windows 上对友好名走 `cmd /c start`（即发即忘），拿不到真实成败。
     # 不在此处自动回退（会误把“启动成功”当成“未运行”造成重复启动，也会把未确认说成失败）；

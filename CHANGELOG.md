@@ -8,6 +8,9 @@
 
 ### Added
 
+- 任务技能库升级到 **schema v2**（`agent/skill_library.py` + `app.py`）：① **一条技能 = 一个可复用子目标**，保存时用 `split_skill_candidates()`（依托已有的 `split_subgoals`）把“打开微信，再发消息”拆成两条并各自命名，界面可勾选后批量保存；② 每条技能新增 `goal_match`（匹配词）、`intents`（建议动作，如 `app_open：微信`）、`verify`（完成后可机器核对的条件，沿用 `exists|路径` 语法）；③ 新增 `match_skills()` 按任务目标**自动推荐**技能（2-gram + 标题包含关系；描述只作弱信号），侧边栏可一键关掉，命中时在回答下方显示“本轮参考技能”；④ 旧 `skills.json` 读取时由 `_normalise_skill()` 自动补齐新字段，不丢数据。复用仍只作提示，不自动执行。
+- `tests/test_skill_library.py`：新增 12 条 v2 用例（旧库迁移、脏字段清洗、按目标/别名匹配与假阳性防护、按子目标拆分、意图与核对项推导、编辑不丢匹配词与核对项）。
+
 - `agent/tools/uia_bridge.ps1` + `agent/tools/ui_bridge.py` + `computer_use` 新增 7 个“控件级/OCR”动作（零新增依赖）：`ui_windows`（列窗口）、`ui_tree`（控件树：名字/类型/AutomationId/矩形/可用状态）、`ui_wait`（等窗口或控件出现）、`ui_click`（按控件名点击，优先 InvokePattern）、`ui_set_text`（优先 ValuePattern 赋值，否则点击+全选+键入）、`ocr_text`（Windows 内置 OCR，zh-Hans-CN，返回文字行与中心坐标）、`click_text`（按屏幕文字点击）。用 PowerShell 调 .NET `UIAutomationClient` 与 `Windows.Media.Ocr`，不装 `uiautomation`/`pywinauto`/`comtypes`（Python 3.14 上这些包还不能用）。`computer_use` 从 19 个动作扩到 26 个。
 - 控件级动作的安全边界（`_guard_ui_target`）：**先解析目标窗口并过检查、再执行动作**（否则 Invoke 已发出才发现目标是终端）；拒绝终端/脚本宿主/注册表/磁盘/系统关键进程/助手自身窗口/开着确认页（Streamlit）的浏览器窗口/最小化窗口；密码框不返回值也不写入；`ui_tree`/`ui_windows`/`ocr_text` 的输出在审计日志里脱敏，`ui_set_text` 的文字在参数日志里脱敏；免确认的 `ui_wait` 只回答“等到没等到”，不回显窗口标题与坐标。
 - `guard/policy.py`：把 `ui_windows`/`ui_tree`/`ui_wait`/`ocr_text` 归入只读集（只读模式允许、不需任务卡），`ui_click`/`ui_set_text`/`click_text` 保持 R2（需 PIN、只读模式拒绝、受 GUI 语义禁令约束）。`guard/repeat_guard.py` 把这三个动作也纳入原地打转检测。
@@ -148,6 +151,9 @@
 - `prompts/main_prompt.txt` / `report_prompt.txt` 中的知识库/RAG 文案。
 
 ### Fixed
+
+- 修复“确认后继续执行”时的 `'TaskCard' object is not iterable`：`_card_to_dict()` 原来用 `isinstance(card, TaskCard)` 判断，Streamlit 热重载会让 `state` 持有旧类对象、`isinstance` 变成 False，于是走到 `dict(card)` 直接抛异常。现在改为按能力判断（有 `to_dict()` 就当任务卡，`Mapping` 浅拷贝，其它类型抛带类型名的 `TypeError`，**不静默变 `{}`**），`TaskCard.from_dict()` 也接受已经是 TaskCard 的对象，`app.py` 在调用边界统一传 dict。
+- 修复“区域截图后点击偏到屏幕左上角”：`screenshot(region=...)` 返回的是局部图片，但结果文案仍写着“与屏幕坐标一致”，模型会把 0~300 的图片坐标当屏幕坐标。现在区域截图会给出 `这是区域 [x=..,y=..,w=..,h=..] 的局部截图` 与 `屏幕坐标 = (x + 图片x × 比例, y + 图片y × 比例)`，并提示优先用 `ocr_text`/`ui_tree`；全屏截图文案保持不变。
 
 - 修复 `computer_use` 的 `hotkey` 真 bug：模型常把 `keys` 发成字符串 `'["alt", "tab"]'`（而不是数组），旧实现按 `+`/空白切分，切出 `'["alt",'`、`'"tab"]'` 这类垃圾键名并交给 OmniPilot——工具返回“Pressed”看起来成功，实际一个快捷键都没按到（审计日志里两次 alt+tab 全部无效，是任务原地打转的直接原因之一）。新增 `_coerce_str_list()`：先识别 JSON 数组并解析，再退回分隔符切分并清掉残留引号/方括号；`app_open` 的 `arguments`、`screenshot` 的 `region` 一并走这条归一路径（`arguments='["--minimized"]'` 以前会被当成一个带方括号的参数传给应用）。
 

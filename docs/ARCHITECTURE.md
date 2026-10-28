@@ -110,7 +110,7 @@
 | 真实天气/定位/用户系统 | 工具返回模拟数据 |
 | GUI 级操作（键鼠/窗口/截图） | 已接入 `computer_use`（OmniPilot 工具层 + Windows UIA/OCR）；控件树与 OCR 都已接，自绘界面仍只能靠 OCR/模板匹配 |
 | 文件上传 UI | `app_file_uploader.py` 为空壳 |
-| 自动化测试/CI | 已有 168 条离线用例和验证脚本，但还没有自动 CI 门禁 |
+| 自动化测试/CI | 已有 190 条离线用例和验证脚本，但还没有自动 CI 门禁 |
 
 > 结论：当前适合做原型验证和 LangChain Agent 二次开发脚手架，不应直接按生产系统对外承诺 SLA。
 
@@ -279,18 +279,18 @@ project2/
 | --- | --- | --- | --- |
 | `app.py` | `st.session_state`、`_render_events`、`_render_operations`、`_render_hitl_block`、`_render_task_card_section`、`_render_skill_library_section`、安全开关/批次回滚 | 页面渲染；侧边栏展示工作区域、只读/急停/PIN 状态、自动快速卡/高级表单、任务技能库、批次回放与回滚；确认卡片用大白话解释；回答下方展示本次操作记录 | 上游：用户；下游：`ReactAgent`、`memory_factory`、`guard`、`skill_library` |
 | `agent/react_agent.py` | `ReactAgent.__init__`、`execute_stream`、`resume_stream`、`_repair_pending_tool_calls`、`_verification_event`、`AgentEvent`、`CONFIRM_TOOLS`、`TOOL_CALL_LIMIT` | 用 `create_agent` 组装模型、21 个工具、中间件；提交新消息前修复悬空工具调用；用 `task_lock` 串行化任务；产出 text/interrupt/tool/verification 四类事件；任务结束核对机器判据；未配置判据标 `not_required` | 上游：`app.py`；下游：模型、工具、中间件、记忆工厂、守卫层 |
-| `agent/skill_library.py` | `steps_from_operations`、`screenshot_candidates`、`save_skill`、`get_skill`、`delete_skill` | 本地技能库：从工具记录生成脱敏步骤、复制关键/最终截图、保存任务卡预设；复用只提供提示，不自动执行 | 被 `app.py` 使用；数据在 `data/task_skills/`（git 忽略） |
+| `agent/skill_library.py` | `steps_from_operations`、`screenshot_candidates`、`save_skill`、`get_skill`、`delete_skill`、`match_skills`、`split_skill_candidates`、`intents_from_operations`、`derive_verify`、`reference_lines`、`_normalise_skill` | 本地技能库（schema v2）：一条技能 = 一个可复用子目标（按 `split_subgoals` 拆分），带 `goal_match` 匹配词、`intents` 建议动作、`verify` 核对项；`match_skills` 用 2-gram + 标题包含关系自动推荐（描述只作弱信号，避免假阳性）；旧库读取时自动补字段；复用只提供提示，不自动执行 | 被 `app.py` 使用；数据在 `data/task_skills/`（git 忽略） |
 | `agent/guard/task_card.py` | `TaskCard`、`TaskCard.from_prompt`、`ALL_ACTIONS`、`validate`、`to_prompt`、`split_subgoals` | 任务卡数据结构、快速卡生成（含一连串要求的子目标拆分与桌面类预算）、字段校验（机器判据可选）、技能步骤参考、转系统提示词；新任务必须带卡 | 被 `state.py`、`policy.py`、`app.py` 使用 |
 | `agent/guard/criteria.py` | `parse_machine_check`、`evaluate_machine_checks`、`criteria_report` | 解析/执行机器判据（存在/不存在、文件数、大小、SHA-256、文本包含）；无法核对标未确认；未配置由 `react_agent` 标 `not_required` | 被 `task_card.py`、`react_agent.py` 使用 |
 | `agent/guard/scope.py` | `ROLLBACKABLE_TOOLS`、`is_rollbackable`、`ROLLBACK_BOUNDARY_TEXT` | 明确回滚边界：文件类可回滚；命令/GUI/永久删除/大文件覆盖不可回滚 | 被 `app.py`、`task_card.py` 使用 |
 | `agent/guard/policy.py` | `check_read_only`、`check_task_card`、`reversibility_of`、`requires_second_subject`、`requires_task_card`、`preflight_reason`、`GUI_SEMANTIC_FORBIDDEN` | 只读、动作类别、目录范围、R0–R3 分级、写操作前置任务卡、GUI 语义禁令保守拦截 | 被 `middlewares.py`、`os_tools.py`、`app.py` 使用 |
-| `agent/guard/state.py` | `start_task`、`end_task`、`consume_step`、`budget_reason`、`request_stop`、`set_approval_context`、`record_tool_status` | 任务运行时账本、预算、急停、会话快照、审批上下文、工具失败计数 | 被中间件、工具、`ReactAgent`、`app.py` 使用 |
+| `agent/guard/state.py` | `start_task`、`end_task`、`consume_step`、`budget_reason`、`request_stop`、`set_approval_context`、`record_tool_status`、`_card_to_dict` | 任务运行时账本、预算、急停、会话快照、审批上下文、工具失败计数；`_card_to_dict` 用**能力判断**接受 TaskCard/dict（热重载后类身份会变，不能只用 isinstance） | 被中间件、工具、`ReactAgent`、`app.py` 使用 |
 | `agent/guard/journal.py` | `new_batch_id`、`record_*`、`rollback_batch`、`list_batches` | 批次 JSONL、整批回滚、批次摘要 | 被 `os_tools.py`、`state.py`、`app.py` 使用 |
 | `agent/guard/lock.py` | `task_lock`、`TaskBusyError` | 单任务文件锁、PID/时间过期清理 | 被 `ReactAgent` 使用 |
 | `agent/guard/approval.py` | `set_pin`、`verify_pin`、`sign_approval`、`verify_approval_token`、`is_protected_path` | PIN 哈希、HMAC 凭证、凭证验签与任务/批次/动作绑定、审批目录保护 | 被 `app.py`、`middlewares.py`、`safety.py`、设置脚本使用 |
 | `agent/guard/middlewares.py` | `guard_model`、`guard_preflight`、`guard_execute`、`track_model_usage` | 把预算/只读/任务卡/计步接进 ReAct 循环；`guard_execute` 对 R2/R3 验签审批凭证并校验任务/批次/动作绑定，再过 `repeat_guard` 拦截原地打转并在结果里附“换策略”提醒 | 被 `ReactAgent` 使用 |
 | `agent/guard/repeat_guard.py` | `note_action`、`reset_for_tests`、`_RADIUS`、`_SOFT_REPEATS`、`_HARD_REPEATS` | 原地打转检测：按动作 + 坐标半径/按键内容做指纹，滑窗统计；第 3 次给建议、第 6 次拒绝执行（只统计有副作用的鼠标键盘动作） | 被 `guard/middlewares.py` 使用 |
-| `agent/tools/computer_use.py` | `computer_use`、`READ_ONLY_ACTIONS`、`action_requires_confirmation`、`_guard_ui_target`、`_BLOCKED_APPS`、`_BLOCKED_APP_DISPLAY_NAMES`、`_PROTECTED_PROCESSES`、`_coerce_str_list`、`_launch_start_menu_app` | 单工具 26 动作：屏幕/鼠标/键盘/剪贴板/应用（OmniPilot）+ 控件级 ui_windows/ui_tree/ui_wait/ui_click/ui_set_text + OCR ocr_text/click_text；`_guard_ui_target` 先检查目标窗口再动手（终端/脚本宿主/注册表/系统进程/自身窗口/最小化窗口一律拒绝）；`_coerce_str_list` 兼容模型把 `keys`/`arguments`/`region` 写成 JSON 字符串；`app_open_start_menu` 命中 `.lnk` 后解析真实目标重新过黑名单 | 上游：模型 tool_call；下游：OmniPilot 工具类、`ui_bridge`、`safety.guard_path` |
+| `agent/tools/computer_use.py` | `computer_use`、`READ_ONLY_ACTIONS`、`action_requires_confirmation`、`_guard_ui_target`、`_BLOCKED_APPS`、`_BLOCKED_APP_DISPLAY_NAMES`、`_PROTECTED_PROCESSES`、`_coerce_str_list`、`_launch_start_menu_app` | 单工具 26 动作：屏幕/鼠标/键盘/剪贴板/应用（OmniPilot）+ 控件级 ui_windows/ui_tree/ui_wait/ui_click/ui_set_text + OCR ocr_text/click_text；`_guard_ui_target` 先检查目标窗口再动手（终端/脚本宿主/注册表/系统进程/自身窗口/最小化窗口一律拒绝）；`_coerce_str_list` 兼容模型把 `keys`/`arguments`/`region` 写成 JSON 字符串；`_region_mapping_note` 给区域截图附上左上角偏移与换算公式（否则模型会把局部坐标当全局坐标）；`app_open_start_menu` 命中 `.lnk` 后解析真实目标重新过黑名单 | 上游：模型 tool_call；下游：OmniPilot 工具类、`ui_bridge`、`safety.guard_path` |
 | `agent/tools/ui_bridge.py` | `run_bridge`、`list_windows`、`find_window`、`dump_tree`、`invoke_element`、`set_element_value`、`ocr_image`、`UiBridgeError` | 调 `uia_bridge.ps1` 的 Python 封装：临时 JSON 文件传参（UTF-8，避开控制台编码）、超时/退出码/输出大小校验、错误归一；不承担安全判断 | 被 `computer_use.py` 使用；下游：PowerShell + Windows UIAutomation/WinRT OCR |
 | `agent/tools/uia_bridge.ps1` | `Do-Windows`、`Do-Window`、`Do-Tree`、`Do-Invoke`、`Do-SetValue`、`Do-Ocr`、`Await-Task` | 零安装桥：用 .NET `UIAutomationClient` 枚举窗口/控件并按控件名 Invoke 或取可点坐标，用 `Windows.Media.Ocr` 识别中文（zh-Hans-CN）；密码框只报占位、不返回内容 | 被 `ui_bridge.py` 以 `-File` 方式调用；需 Windows + Windows PowerShell |
 | `agent/tools/os_tools.py` | 13 个 `@tool` | 本机信息、文件读写、搜索、进程与命令执行；所有路径操作先过 `guard_path`；软删除、覆盖备份、后缀拦截 | 上游：模型 tool_call；下游：`safety.py`、OS / 文件系统 / subprocess |
@@ -1102,7 +1102,7 @@ memorys/chat_history/
 | TD-14 | P2 | `yaml.FullLoader` 非最安全 | `config_handler.py` | 恶意 YAML 有风险（本地配置场景较低） | 改用 `yaml.safe_load` |
 | TD-15 | ✅ 已修复 | `md5.text` 非原子、无并发保护 | RAG 子系统已整体移除 | — | — |
 | TD-16 | ✅ 已修复 | 运行产物被 Git 跟踪 | 之前 `git ls-files` 含 `__pycache__`、`logs`、`memorys/chat_history`；现在已从索引移除并由 `.gitignore` 忽略 | 仓库不再膨胀 | 保持提交前检查 |
-| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（168 条 unittest 用例，其中 P0 守卫层 53 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
+| TD-17 | P3 部分修复 | 缺 CI 门禁 | 已有 `tests/`（190 条 unittest 用例，其中 P0 守卫层 59 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`；仍无 CI | 改动回归靠手动跑验证脚本 | 挂到 pre-push 或 GitHub Actions |
 | TD-18 | ✅ 已修复 | 模型/Embedding 维度无迁移机制 | 向量库已移除；当前无 embedding 依赖 | — | 如后续重新引入检索，需做集合版本管理 |
 | TD-19 | P2 | 外部数据缓存不失效 | `external_data` 模块级 dict 只填充一次 | 运行中 CSV 更新不生效 | 加 TTL/文件 mtime 检查 |
 | TD-20 | ✅ 已修复 | 逐字符 `time.sleep(0.01)` | 已改为按事件块渲染，不再逐字符 sleep | 长回答不再阻塞请求线程 | — |
@@ -1383,7 +1383,7 @@ scripts/verify_agent_resilience.py   # 跑全部用例并输出证据 JSON
 scripts/verify_small_business.py     # 跑全部用例 + 统计 P0 守卫层用例 + 证据 JSON
 ```
 
-当前共 **168 条用例**（其中 P0 守卫层 53 条，其余为韧性/校验/桌面/技能库/长任务/UI 自动化用例），全部通过。
+当前共 **190 条用例**（其中 P0 守卫层 59 条，其余为韧性/校验/桌面/技能库/长任务/UI 自动化用例），全部通过。
 
 要点：
 
