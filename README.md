@@ -64,6 +64,8 @@
 
 **一句话架构**：Streamlit 收集指令 → `ReactAgent` 取单任务锁并创建任务运行时 → `create_agent` 构建 LangGraph → 守卫层在模型/工具调用前检查任务卡、只读、预算与急停 → 模型在中间件约束下循环调用工具 → 只读工具直接执行、高危工具等待确认（R2/R3 还要 PIN）→ 写操作记入批次 → 模型生成答案 → 按消息块流式返回页面。
 
+> 当前注册 21 个工具、`computer_use` 26 个动作；其余工具/动作/用例/预算/模型数字以 [docs/_generated/facts.md](docs/_generated/facts.md) 为准；改代码后运行 `uv run python scripts/sync_doc_facts.py`，测试会检查是否同步。
+
 ![系统架构总览](docs/architecture.svg)
 
 ---
@@ -104,7 +106,7 @@
 | 审计与回放 | ✅ 已接入 | `utils/audit_logger.py` 扩展字段 + 批次回放 UI |
 | 单任务全局锁 | ✅ 已接入 | `agent/guard/lock.py` + `ReactAgent` 的 `task_lock` |
 | 工具调用日志 | ✅ 已接入 | `agent/tools/middleware.py` → `monitor_tool` |
-| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，193 条，其中 P0 守卫层 62 条）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
+| 离线验证用例 | ✅ 已接入 | `tests/`（`unittest`，用例数与 P0 数见 [docs/_generated/facts.md](docs/_generated/facts.md)）+ `scripts/verify_agent_resilience.py` + `scripts/verify_small_business.py`（证据写进 `docs/*/evidence/`） |
 | 模型调用前状态日志 | ✅ 已接入 | `agent/tools/middleware.py` → `log_before_model` |
 | 报告场景动态提示词 | ✅ 已接入 | `fill_context_for_report` + `report_prompt_switch` |
 | 联网搜索（百度） | ✅ 已接入 | `agent/tools/agent_tools.py` → `web_search_baidu` |
@@ -137,7 +139,7 @@
 | 配置 | PyYAML / python-dotenv | 6.0.3 / 1.2.3 | YAML 配置、`.env` 加载 |
 | HTTP 客户端 | requests | 2.34.2 | 百度联网搜索 |
 
-模型：`qwen3.5-flash`（对话，经 DashScope OpenAI 兼容模式）；`glm-5`（备用对话模型，主模型失败时自动降级）。
+模型：`qwen3.5-27b`（对话，经 DashScope OpenAI 兼容模式）；`qwen3.5-flash`（备用对话模型，主模型失败时自动降级）。
 
 ---
 
@@ -244,6 +246,8 @@ uv run -m agent.tools.os_tools   # 验证电脑工具（不调用模型）
 uv run -m agent.tools.computer_use  # 只读桌面工具冒烟（屏幕尺寸/应用列表/等待）
 uv run -m utils.logger_handler   # 验证日志输出
 uv run python scripts/apply_env_patch.py --check  # 验证虚拟环境补丁是否已生效
+uv run python scripts/sync_doc_facts.py --check  # 校验文档数字是否与代码同步
+uv run python -m unittest tests.test_docs_consistency -v  # 只跑文档一致性用例
 .venv\Scripts\python.exe scripts\verify_agent_resilience.py  # 跑离线验证用例并生成证据 JSON
 uv run python scripts/verify_small_business.py  # 跑小企业版 P0 验证并生成证据 JSON
 uv run python scripts/setup_approval_pin.py          # 设置审批口令（PIN，交互式）
@@ -270,6 +274,7 @@ project2/
 ├── .vscode/settings.json       # ⚙️ IDE 配置：解释器 + 集成终端 Bypass（git 跟踪，见 4.2.1）
 ├── agent/
 │   ├── react_agent.py          # ✅ Agent 组装、HITL 确认、事件流、会话自愈、单任务锁入口
+│   ├── tool_registry.py        # ✅ 工具注册表（工具清单/确认清单/硬上限的唯一来源）
 │   ├── resilience.py           # ✅ 悬空 tool_call 的识别与修复
 │   ├── skill_library.py        # ✅ 任务技能库：子目标拆分/匹配/步骤/截图（schema v2）
 │   ├── guard/                  # ✅ 小企业版 P0 守卫层
@@ -284,13 +289,13 @@ project2/
 │   │   ├── approval.py         # ✅ PIN 哈希 / HMAC 凭证 / 验签绑定 / 审批目录保护
 │   │   └── middlewares.py      # ✅ 守卫层中间件（含 R2/R3 验签）
 │   └── tools/
-│       ├── os_tools.py         # ✅ 13 个电脑信息与文件操作工具
-│       ├── computer_use.py     # ✅ 1 个桌面控制工具（26 个动作，OmniPilot + UIA/OCR）
+│       ├── os_tools.py         # ✅ 电脑信息与文件操作工具
+│       ├── computer_use.py     # ✅ 桌面控制工具（OmniPilot + UIA/OCR）
 │       ├── ui_bridge.py        # ✅ UIA/OCR 桥（Python 侧：超时/解析/错误归一）
 │       ├── uia_bridge.ps1      # ✅ PowerShell 桥：调 Windows UIAutomation + 内置 OCR
 │       ├── safety.py           # ✅ 工作区域、命令拦截、备份、回收区
 │       ├── verification.py     # ✅ 文件操作结果的后置校验
-│       ├── agent_tools.py      # ✅ 7 个业务工具
+│       ├── agent_tools.py      # ✅ 业务工具
 │       └── middleware.py       # ✅ 工具监控/审计/错误兜底/有限重试（守卫层在 guard/）
 ├── model/
 │   └── factory.py              # ✅ Chat 模型工厂
@@ -313,6 +318,8 @@ project2/
 ├── env_patch/                  # ⚙️ 虚拟环境补丁（.pth + sitecustomize.py）
 ├── scripts/
 │   ├── apply_env_patch.py      # ⚙️ 把 env_patch 装进 .venv（每次 uv sync 后执行）
+│   ├── doc_facts.py            # ✅ 从代码/配置派生文档事实
+│   ├── sync_doc_facts.py       # ✅ 写入/校验 docs/_generated/facts.md
 │   ├── verify_agent_resilience.py  # ✅ 跑离线用例并生成证据快照
 │   ├── verify_small_business.py    # ✅ 跑小企业版 P0 用例并生成证据
 │   └── setup_approval_pin.py       # ⚙️ 设置/查看审批口令（PIN）
@@ -330,7 +337,7 @@ project2/
 约 30 分钟，按依赖顺序阅读：
 
 1. `app.py`：看 UI 如何创建 Agent、如何接收流式输出，以及安全开关/任务卡/批次回滚入口。
-2. `agent/react_agent.py`：看 `create_agent` 的模型、工具、中间件三要素，以及单任务锁和任务运行时。
+2. `agent/react_agent.py`：看 `create_agent` 的模型、`AGENT_TOOLS`、中间件三要素，以及单任务锁和任务运行时。
 3. `agent/guard/`：看任务卡、只读、R0–R3 分级、批次回滚、预算急停、单任务锁与 PIN。
 4. `agent/tools/safety.py`：看工作区域、命令拦截、备份、回收区和小白解释。
 5. `agent/tools/os_tools.py`：看电脑信息、文件读写、搜索与命令执行如何用 `@tool` 描述，以及路径/系统目录保护。
@@ -338,7 +345,7 @@ project2/
 7. `agent/tools/agent_tools.py`：看原有业务工具与 CSV 懒加载。
 8. `agent/tools/middleware.py`：看工具监控、审计字段、模型前日志、动态提示词（追加任务卡）、PII 脱敏、模型降级、错误兜底与有限重试。
 9. `agent/resilience.py` + `agent/tools/verification.py`：看中断后如何自愈、工具结果如何被确定性核对（含退出码与复制哈希）。
-10. `agent/react_agent.py` 的 `CONFIRM_TOOLS` / `hitl_middleware`：看哪些工具需要人工确认、哪些还要 PIN。
+10. `agent/tool_registry.py` 的 `CONFIRM_TOOLS` + `agent/react_agent.py` 的 `hitl_middleware`：看哪些工具需要人工确认、哪些还要 PIN。
 11. `model/factory.py` → `config/*.yml`：看模型与参数如何装配。
 12. `utils/*`：看配置、路径、日志、提示词加载的公共约定。
 
@@ -360,7 +367,7 @@ project2/
 | 调整命令超时/读取上限 | `agent/tools/os_tools.py` 顶部常量 |
 | 换外部 CSV 路径 | `config/agent.yml` |
 | 换提示词 | `prompts/*.txt`（Agent 系统提示词每次模型调用前重读） |
-| 新增工具 | `agent/tools/os_tools.py` + `agent/react_agent.py` 的 tools 列表；有副作用时同步加入 `CONFIRM_TOOLS` |
+| 新增工具 | `agent/tools/os_tools.py`（或 `agent_tools.py`）+ `agent/tool_registry.py` 的 `OS_TOOLS`/`BUSINESS_TOOLS`/`AGENT_TOOLS`；有副作用时同步加入 `CONFIRM_TOOLS`；运行 `scripts/sync_doc_facts.py` |
 | 调整自动重试范围/条件 | `agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` 与 `_should_retry_tool_error` |
 | 调整结果校验范围 | `agent/tools/verification.py` 的 `_CHECKERS` 与 `_SUCCESS_PREFIXES` |
 | 只读模式 | 侧边栏「安全开关」，或 `config/agent.yml` 的 `read_only`；临时演练用 `AGENT_READ_ONLY=1` |
@@ -422,6 +429,7 @@ project2/
 | 文档 | 内容 |
 | --- | --- |
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | 1 页速览：定位、分层、主流程、关键约束、问题索引 |
+| [docs/_generated/facts.md](docs/_generated/facts.md) | 当前工具/动作/用例/预算/模型等数字（由 `scripts/sync_doc_facts.py` 生成，勿手改） |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构、模块职责、调用时序、配置、扩展指南、技术债 |
 | [docs/architecture.svg](docs/architecture.svg) | 分层架构总览图 |
 | [docs/OS_TOOLS.md](docs/OS_TOOLS.md) | 电脑操作功能与安全说明：工作区域、确认卡片、回收区、审计日志、参数表 |
@@ -441,6 +449,7 @@ project2/
 | [docs/small-business-p0/09-安全边界与机器判据.md](docs/small-business-p0/09-安全边界与机器判据.md) | 项目写保护、审批验签、复制/移动后缀、GUI 语义禁令、任务卡全覆盖、机器判据、回滚边界 |
 | [docs/small-business-p0/10-任务卡简化与技能库.md](docs/small-business-p0/10-任务卡简化与技能库.md) | 快速任务卡、机器判据可选、技能库 v2（按子目标拆分/自动匹配/建议动作与核对项）、复用方式与安全边界 |
 | [docs/06-长期改造经验与方法论.md](docs/06-长期改造经验与方法论.md) | 长任务改造方法论：任务契约、评估尺、阶段门、复盘与反幻觉 |
+| [docs/项目现状审查报告-2026-10-28.md](docs/项目现状审查报告-2026-10-28.md) | 当前项目发展不足、结构性限制、关键取舍与下一阶段建议（2026-10-28 审查） |
 | [docs/agent-resilience/00-进度备忘录.md](docs/agent-resilience/00-进度备忘录.md) | 循环韧性改造的进度、决策与已知缺口 |
 | [docs/agent-resilience/01-入门讲解-失败重试与结果验证.md](docs/agent-resilience/01-入门讲解-失败重试与结果验证.md) | 入门讲解：ReAct 循环、失败四根因、重试规则、结果校验、会话自愈 |
 | [docs/agent-resilience/02-验证与交付复盘.md](docs/agent-resilience/02-验证与交付复盘.md) | 验证体系、用例结果、真实冒烟、阶段门与复盘 |

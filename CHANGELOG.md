@@ -8,6 +8,10 @@
 
 ### Added
 
+- `agent/tool_registry.py`：新增工具注册表，集中维护 `OS_TOOLS` / `BUSINESS_TOOLS` / `DESKTOP_TOOLS` / `AGENT_TOOLS` / `CONFIRM_TOOLS` / `TOOL_CALL_LIMIT`；`react_agent.py` 改为使用注册表，避免“工具清单”在代码和文档里各维护一份。
+- `scripts/doc_facts.py` + `scripts/sync_doc_facts.py` + `docs/_generated/facts.md`：从代码/配置派生工具数、动作数、用例数、预算、模型名、规则条数等事实；支持 `--check` 只校验不写，避免 README/架构文档的数字随代码漂移。
+- `tests/test_docs_consistency.py`：新增 9 条文档一致性用例（生成页是否最新、README/OVERVIEW/ARCHITECTURE/OS_TOOLS 关键数字、过时字符串、工具/动作覆盖、本地 Markdown 链接）；全套用例从 193 增至 202。
+
 - 任务技能库升级到 **schema v2**（`agent/skill_library.py` + `app.py`）：① **一条技能 = 一个可复用子目标**，保存时用 `split_skill_candidates()`（依托已有的 `split_subgoals`）把“打开微信，再发消息”拆成两条并各自命名，界面可勾选后批量保存；② 每条技能新增 `goal_match`（匹配词）、`intents`（建议动作，如 `app_open：微信`）、`verify`（完成后可机器核对的条件，沿用 `exists|路径` 语法）；③ 新增 `match_skills()` 按任务目标**自动推荐**技能（2-gram + 标题包含关系；描述只作弱信号），侧边栏可一键关掉，命中时在回答下方显示“本轮参考技能”；④ 旧 `skills.json` 读取时由 `_normalise_skill()` 自动补齐新字段，不丢数据。复用仍只作提示，不自动执行。
 - `tests/test_skill_library.py`：新增 12 条 v2 用例（旧库迁移、脏字段清洗、按目标/别名匹配与假阳性防护、按子目标拆分、意图与核对项推导、编辑不丢匹配词与核对项）。
 
@@ -95,6 +99,7 @@
 
 ### Changed
 
+- 文档数字改为“代码派生 + 一致性测试”：README / PROJECT_OVERVIEW / ARCHITECTURE / OS_TOOLS / AGENTS 都链接 `docs/_generated/facts.md`；修正主模型名（`qwen3.5-27b`，备用 `qwen3.5-flash`）、危险命令规则数（28 → 29）、用例数（改为引用生成页），并移除目录树里容易漂移的工具计数。安全报告、阶段复盘等历史文档保留当时数字，但加注“当前值见 facts.md”。
 - 任务卡从“每个新任务手动填表”改为“默认按输入自动生成快速卡，高级设置按需展开”；快速卡默认允许全部动作、只默认禁止“提权”；`start_task()` 仍要求有卡；机器判据改为可选，未配置时按人工确认验收。GUI “发送/提交/付款”语义禁令只在自定义卡保留这些词时生效。
 - `tests/test_small_business_guard.py` 扩到 51 条 P0 用例，加入技能库 5 条，全套 75 条；证据文件更新为 `docs/small-business-p0/evidence/verify-20261027-182040.json`。
 - 历史记录（保留）：任务卡曾从“写操作前置”升级为“每个新任务必填”；本轮为可用性再次调整为自动快速卡。

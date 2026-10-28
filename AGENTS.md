@@ -15,6 +15,8 @@
 9. `docs/ARCHITECTURE.md` 的对应章节：按 `PROJECT_OVERVIEW.md` 第 8 节索引按需读，不要默认整份加载。
 10. 源码：需要精确行为时再读；代码是最终事实源。
 11. `CHANGELOG.md`：只在需要知道“最近改了什么 / 为什么改”时读；它是 Keep a Changelog 格式的人工摘要，不是 git log。
+12. 需要项目现状审查、发展不足、限制与改进建议时，读 `docs/项目现状审查报告-2026-10-28.md`；它是一次性审查快照，代码变化后需重新评估。
+13. 需要当前工具/动作/用例/预算/模型等数字时，读 `docs/_generated/facts.md`；它由 `scripts/sync_doc_facts.py` 生成，不要手改。
 
 ## 不要做的事
 
@@ -40,16 +42,17 @@
 - 不要把跨模块共享的运行态（尤其审批上下文）只放进程内模块全局：Streamlit 1.64 检测到本地模块文件变化时会**卸载并重新导入**模块，而 `st.session_state` 里缓存的旧 Agent 不会重建，旧中间件会一直读旧 `agent.guard.state`。审批上下文必须内存 + `.agent_state/approval_context.json` 双写，界面侧还要按 `agent.guard_state is 当前模块` 重建旧 Agent；否则会出现“PIN 正确却一直说没有凭证”（真实事故：2026-10-28 打开微信/点搜索连续 5 次被拒）。
 - 不要把技能库改成“自动执行器”：schema 升级（`goal_match`/`intents`/`verify`）只能增加提示信息，技能仍不得绕过当前任务卡、人工确认与 PIN；改 schema 时必须保持 `_normalise_skill()` 向前兼容，旧 `skills.json` 不丢数据；匹配规则不能拿“描述里提到目标”当命中（会造成假阳性，已有用例）。
 - 不要把区域截图当全局截图描述：`screenshot(region=...)` 返回的是局部图片（像素从 0 开始），结果文案必须带上“区域左上角偏移 + 换算公式”（`_region_mapping_note`），否则模型会按局部坐标去点，落在屏幕左上角附近；改动时保留 `tests/test_ui_actions.py::RegionScreenshotNoteTest`。
+- 不要手改 `docs/_generated/facts.md`，也不要在 `react_agent.py` 里另维护工具清单：工具注册在 `agent/tool_registry.py`（`OS_TOOLS`/`BUSINESS_TOOLS`/`DESKTOP_TOOLS`/`AGENT_TOOLS`/`CONFIRM_TOOLS`/`TOOL_CALL_LIMIT`）；数字由 `scripts/sync_doc_facts.py` 生成，改完跑 `tests/test_docs_consistency.py`。
 
 ## 修改后的文档动作
 
 按 `docs/ARCHITECTURE.md` 第 16.3 节同步：
 
-- 新增/删除工具 → `README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`docs/OS_TOOLS.md`、`architecture.svg` 工具层。
+- 新增/删除工具 → `agent/tool_registry.py`（`OS_TOOLS`/`BUSINESS_TOOLS`/`DESKTOP_TOOLS`/`AGENT_TOOLS`/`CONFIRM_TOOLS`）、`README.md` 能力表、`ARCHITECTURE.md` 5.2/13.1、`docs/OS_TOOLS.md`、`architecture.svg` 工具层；最后运行 `uv run python scripts/sync_doc_facts.py` 和 `tests/test_docs_consistency.py`。
 - 新增/删除中间件 → `ARCHITECTURE.md` 5.2/8/11、`architecture.svg` 编排层。
 - 新增/删除文档 → `README.md` 导读/文档地图、`PROJECT_OVERVIEW.md` 第 8 节、本文件阅读顺序。
 - 改任务卡快速卡/技能库 → `agent/guard/task_card.py`、`agent/skill_library.py`（`_normalise_skill`/`match_skills`/`split_skill_candidates`/`reference_lines`）、`app.py`（自动匹配开关、按子目标保存）、`tests/test_small_business_guard.py`、`tests/test_skill_library.py`、`docs/small-business-p0/10-任务卡简化与技能库.md`、README/OS_TOOLS/ARCHITECTURE/CHANGELOG；改匹配规则要补“描述里提到目标不算命中”的假阳性用例。
-- 新增/修改测试用例或验证脚本 → `tests/`、`scripts/verify_agent_resilience.py`、`scripts/verify_small_business.py`、`docs/agent-resilience/02-验证与交付复盘.md`（用例数与结论要同步）、`docs/small-business-p0/08-交付复盘与验收清单.md`（P0 用例数与证据）、`ARCHITECTURE.md` 13.10、`README.md` 能力表。
+- 新增/修改测试用例或验证脚本 → `tests/`、`tests/test_docs_consistency.py`、`scripts/verify_agent_resilience.py`、`scripts/verify_small_business.py`、`scripts/doc_facts.py`/`sync_doc_facts.py`、`docs/_generated/facts.md`（生成页，勿手改）、`docs/agent-resilience/02-验证与交付复盘.md`（用例数与结论要同步）、`docs/small-business-p0/08-交付复盘与验收清单.md`（P0 用例数与证据）、`ARCHITECTURE.md` 13.10、`README.md` 能力表。
 - 改工具失败/重试/结果校验/会话自愈 → `agent/resilience.py`、`agent/tools/verification.py`、`agent/tools/middleware.py` 的 `RETRYABLE_TOOLS` / `_should_retry_tool_error`、`ARCHITECTURE.md` 6.5/11.3/12、`docs/agent-resilience/01`，并补对应用例。
 - 改电脑操作/人工确认 → `ARCHITECTURE.md` 7/13.2、`docs/OS_TOOLS.md`、`README.md` 能力表、`architecture.svg` 工具层；动作增删改 `agent/tools/computer_use.py` 的 `_ACTION_PARAMS`/`_REQUIRED_PARAMS`/工具描述与 `agent/tools/safety.py` 的 `describe_operation`/`operation_risk`/`operation_target`。控件级/OCR 动作还需 `agent/tools/ui_bridge.py`、`agent/tools/uia_bridge.ps1`（保持 ASCII 注释，PS 5.1 按 ANSI 读无 BOM 脚本）、`_guard_ui_target`、`guard/policy.py` 只读集、`guard/repeat_guard.py` 跟踪动作、`tests/test_ui_actions.py`。
 - 改安全策略/工作区域 → `ARCHITECTURE.md` 7.2/7.4、`docs/OS_TOOLS.md` 2/8/11.2/11.3、`README.md` 配置速查；界面入口在 `app.py` 的「工作区域」弹层，保存回写在 `agent/guard/config.py`（`update_agent_config_block`）+ `agent/tools/safety.py`（`save_workspace_roots`）。
@@ -57,8 +60,9 @@
 - 改“一连串桌面要求”的执行能力（子目标拆分、桌面预算、原地打转拦截、截图历史裁剪）→ `agent/guard/task_card.py`（`split_subgoals`/`subgoals`）、`agent/guard/config.py`（`desktop_task_defaults`/`keep_recent_screenshots`）、`agent/guard/repeat_guard.py`、`agent/guard/middlewares.py`、`agent/tools/middleware.py`（`trim_screenshot_history`）、`agent/react_agent.py` 中间件列表、`config/agent.yml`、`prompts/main_prompt.txt`、`tests/test_long_task_desktop.py`、`ARCHITECTURE.md` 4.1/5.2/6/7.4/9.3/11/13.10/16.3、`docs/OS_TOOLS.md`、`docs/small-business-p0/10`、README/PROJECT_OVERVIEW/CHANGELOG、`architecture.svg` 编排层。
 - 改项目写保护/审批验签/复制移动后缀/GUI 语义禁令/机器判据/技能库数据目录 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/guard/approval.py`、`agent/guard/middlewares.py`、`agent/guard/criteria.py`、`agent/guard/scope.py`、`agent/guard/task_card.py`、`agent/react_agent.py`、`agent/skill_library.py`、`docs/small-business-p0/09-安全边界与机器判据.md`、`docs/small-business-p0/10-任务卡简化与技能库.md`、`docs/SECURITY_REPORT_2026-10-27.md`、`README.md`、`OS_TOOLS.md`、`ARCHITECTURE.md`，并补对应用例。
 - 实现秘密文件读取/敏感读取审批 → `agent/tools/safety.py`、`agent/tools/os_tools.py`、`agent/react_agent.py` 的 HITL 配置、`agent/guard/approval.py`/`policy.py`、`tests/`、`docs/SECURITY_REPORT_2026-10-27.md`、`docs/small-business-p0/09–10`、README/OS_TOOLS/ARCHITECTURE/AGENTS；实现前不要把计划写成已完成。
-- 改配置 → `ARCHITECTURE.md` 9、`README.md` 配置速查。
-- 改模型/依赖/目录 → 对应技术栈、拓扑与目录树章节；**图也要同步**：`architecture.svg` 的模型/存储层节点与副标题。
+- 改配置 → `ARCHITECTURE.md` 9、`README.md` 配置速查；预算/工作区/只读等数字变化后运行 `scripts/sync_doc_facts.py` 更新 `docs/_generated/facts.md`。
+- 改模型/依赖/目录 → 对应技术栈、拓扑与目录树章节；改模型后运行 `scripts/sync_doc_facts.py`（主/备模型名会进事实页）；**图也要同步**：`architecture.svg` 的模型/存储层节点与副标题。
+- 改工具/动作/测试/预算/模型/配置数字 → 先运行 `uv run python scripts/sync_doc_facts.py`；`--check` 只校验不写；不要手改 `docs/_generated/facts.md`；`tests/test_docs_consistency.py` 会检查 README/OVERVIEW/ARCHITECTURE/OS_TOOLS 的内联数字与本地链接。
 - 任何值得记录的改动（新增/变更/废弃/移除/修复）→ 归入 `CHANGELOG.md` 的 `## [Unreleased]`，按 Keep a Changelog 分组（Added / Changed / Deprecated / Removed / Fixed / Security）写英文标题 + 中文描述；发布时才改成版本标题。不要把增量日志写进架构正文。
 
 ## 冲突处理

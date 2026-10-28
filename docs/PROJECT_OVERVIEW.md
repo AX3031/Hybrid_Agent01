@@ -5,6 +5,8 @@
 > 代码基线：`2026-10-27` 工作区快照（含小企业版 P0 守卫层）。
 >
 > 配套图：[architecture.svg](architecture.svg)（分层架构）；AI 阅读约定见 [AGENTS.md](../AGENTS.md)。
+>
+> 当前工具、动作、用例、预算、模型等数字以 [_generated/facts.md](_generated/facts.md) 为准；本文只保留结构、流程与“为什么”。
 
 **本文目录**：[1 一句话](#1-一句话) · [2 技术栈](#2-技术栈) · [3 分层结构](#3-分层结构) · [4 请求流程](#4-一次请求怎么走) · [5 电脑操作与确认](#5-电脑操作与人工确认) · [6 目录](#6-目录速查) · [7 约束](#7-关键约束) · [8 问题索引](#8-按问题找位置) · [9 AI 约定](#9-给-ai-的阅读约定)
 
@@ -22,7 +24,7 @@
 | psutil | 7.2.2 | 系统信息、磁盘、进程枚举 |
 | streamlit | 1.64.0 | 对话 UI 与流式渲染 |
 
-模型：`qwen3.5-flash`（对话）、`glm-5`（备用对话模型）。
+模型：`qwen3.5-27b`（对话）、`qwen3.5-flash`（备用对话模型）。
 
 ## 3. 分层结构
 
@@ -57,7 +59,7 @@
 
 **桌面控制（computer_use，单工具多动作）**：首选“控件级”操作——Windows 自带 UIA 能直接拿到控件名字/类型/位置（`ui_windows`/`ui_tree`/`ui_click`/`ui_set_text`），自带 OCR 能拿到屏幕文字与中心点（`ocr_text`/`click_text`），两者都由 `agent/tools/uia_bridge.ps1` 调系统接口，**不装任何新依赖**；控件树为空（自绘界面）才退回 OCR，坐标点击（OmniPilot 的 click/type_text）是最后选择。`ui_click`/`ui_set_text` 会在动手**之前**检查目标窗口：终端、脚本宿主、注册表/磁盘工具、系统关键进程、助手自身窗口、最小化窗口一律拒绝，密码框不读不写。截图以内容块回传，`app_open` 拒绝终端/脚本宿主/注册表/磁盘工具（含中英文显示名），Windows 下打不开时改用 `app_open_start_menu`。
 
-**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入（复制/移动目标与目录树也检查）；28 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据/技能库拒绝 Agent 写入；任务卡预算（普通任务 30 步/10 分钟/2 元，要动鼠标键盘的桌面任务 60 步/20 分钟/5 元）+ 100 步/单次运行硬上限；同一区域反复同一动作会被 `repeat_guard` 先提醒后拦截（第 3 次提醒、第 6 次拒绝执行）。
+**自动保险**：删除默认移到 `.agent_trash`；覆盖前备份到 `.agent_backup`；可执行后缀拒绝写入（复制/移动目标与目录树也检查）；29 条危险命令黑名单（含环境变量、编码命令、`cd ..`、下载/执行工具等绕过路径）；命令中的越界路径拒绝；项目源码/配置/提示词/脚本/日志/虚拟环境/Git 元数据/技能库拒绝 Agent 写入；任务卡预算（普通任务 30 步/10 分钟/2 元，要动鼠标键盘的桌面任务 60 步/20 分钟/5 元）+ 100 步/单次运行硬上限；同一区域反复同一动作会被 `repeat_guard` 先提醒后拦截（第 3 次提醒、第 6 次拒绝执行）。
 
 **守卫层（小企业版 P0）**：界面自动生成快速任务卡，`start_task` 仍要求有卡；机器判据可选，填了才由代码核对，未填按人工确认验收；只读模式禁用全部写操作；每个任务一个批次号，可在侧边栏整批回滚，并明确命令/GUI/永久删除不在回滚范围；R2/R3 动作需要人工持有的 PIN，执行侧验签并绑定任务/批次/动作（凭证内存 + `.agent_state/approval_context.json` 落盘，避免 Streamlit 热重载后界面写新模块、执行端读旧模块）；急停写 `STATE_DIR/STOP` 文件；审计记录 `batch_id/step_no/reversibility/approver`；同一时刻只允许一个任务操作本机。
 
@@ -70,7 +72,7 @@
 ## 6. 目录速查
 
 ```text
-agent/        Agent 组装、13 个电脑工具 + 7 个业务工具 + 1 个桌面控制工具、守卫层、任务技能库、会话自愈、结果校验、安全策略与中间件
+agent/        Agent 组装、电脑工具 + 业务工具 + 桌面控制工具、守卫层、任务技能库、会话自愈、结果校验、安全策略与中间件
 model/        Chat 模型工厂
 utils/        配置、路径、日志、提示词加载
 config/       model / agent / prompts
@@ -103,7 +105,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 - **桌面控制的应用边界**：`app_open` 不启动终端/脚本宿主/注册表/磁盘工具（避免绕过 `run_command`）；`app_close` 不关闭系统关键进程。
 - **外部 CSV 为空**：`data/external/records.csv` 当前 0 字节；`fetch_external_data` 注解为 `str`、实际返回 `dict`。
 - **Windows 集成终端已放宽执行策略**：`.vscode/settings.json` 给终端的 PowerShell 加了 `-ExecutionPolicy Bypass`（仅该终端进程、不写注册表），用于让自动执行的 `Activate.ps1` 跟 Windows 默认的 `Restricted` 共存；它不是安全防线，项目边界仍在 `safety.py` + HITL 确认 + 审计日志。
-- **未实现**：鉴权、限流、多租户、文件上传 UI；已有 193 条离线用例（含 P0 守卫层 62 条）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏；`.env`/密钥文件读取仍未拦截（计划默认拒绝 + 独立敏感读取审批）；技能库截图可能含隐私，保存前需人工确认。
+- **未实现**：鉴权、限流、多租户、文件上传 UI；已有离线用例（用例数与 P0 数见 [_generated/facts.md](_generated/facts.md)）；PII 仅覆盖模型输入/输出，日志中仅 `computer_use` 做了定向脱敏，其他工具参数仍未脱敏；`.env`/密钥文件读取仍未拦截（计划默认拒绝 + 独立敏感读取审批）；技能库截图可能含隐私，保存前需人工确认。
 
 ## 8. 按问题找位置
 
@@ -111,6 +113,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 | --- | --- |
 | 项目怎么跑起来？ | [README 快速开始](../README.md#4-快速开始) |
 | 整体分几层、用了什么？ | [ARCHITECTURE 第 4 节](ARCHITECTURE.md#4-总体架构) + [architecture.svg](architecture.svg) |
+| 当前工具/动作/用例/预算/模型是多少？ | [_generated/facts.md](_generated/facts.md) |
 | 一次请求怎么走？ | [ARCHITECTURE 第 6 节](ARCHITECTURE.md#6-运行时主链路) |
 | 电脑操作与确认怎么实现？ | [ARCHITECTURE 第 7 节](ARCHITECTURE.md#7-电脑操作子系统) |
 | 任务卡/批次回滚/预算急停/PIN 怎么实现？ | [小企业版 P0 进度备忘录](small-business-p0/00-进度备忘录.md) + 01–10 入门讲解 |
@@ -132,6 +135,7 @@ scripts/      apply_env_patch.py（环境补丁）+ verify_agent_resilience.py�
 | `uv sync` 后补丁丢了？ | [README 4.2](../README.md#42-安装依赖) + `uv run python scripts/apply_env_patch.py` |
 | 想加工具/上传/记忆？ | [ARCHITECTURE 第 13 节](ARCHITECTURE.md#13-扩展指南) |
 | 有什么坑/技术债？ | [ARCHITECTURE 第 12 节](ARCHITECTURE.md#12-已知问题与技术债) |
+| 当前项目有什么不足、限制、取舍和建议？ | [项目现状审查报告-2026-10-28.md](项目现状审查报告-2026-10-28.md) |
 | 启动失败/日志在哪？ | [ARCHITECTURE 第 11 节](ARCHITECTURE.md#11-可观测性与错误处理) + [16.2](ARCHITECTURE.md#162-常用命令) |
 | 代码文件对应关系？ | [ARCHITECTURE 16.1](ARCHITECTURE.md#161-关键文件索引) |
 | 最近改了什么、为什么改？ | [CHANGELOG](../CHANGELOG.md) |

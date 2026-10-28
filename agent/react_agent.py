@@ -10,16 +10,9 @@ from langgraph.types import Command
 from model.factory import chat_model
 from utils.prompt_loader import load_system_prompts
 from memorys.memory_factory import DEFAULT_MEMORY_MODE, create_checkpointer
-from agent.tools.agent_tools import (
-    get_weather, get_user_location, get_user_id, get_current_month,
-    fetch_external_data, fill_context_for_report, web_search_baidu,
-)
-from agent.tools.computer_use import action_requires_confirmation, computer_use
+from agent.tool_registry import AGENT_TOOLS, CONFIRM_TOOLS, TOOL_CALL_LIMIT
+from agent.tools.computer_use import action_requires_confirmation
 from agent.tools.safety import summarize_content_for_log
-from agent.tools.os_tools import (
-    get_system_info, list_directory, read_text_file, search_files, search_text, list_processes,
-    write_text_file, create_directory, move_path, copy_path, delete_path, run_command, open_path,
-)
 from agent.tools.middleware import (
     monitor_tool, log_before_model, report_prompt_switch,
     pii_middleware_email, pii_middleware_phone, model_fallback_middleware,
@@ -34,20 +27,6 @@ from agent.guard.middlewares import (
 from agent.resilience import repair_thread_state
 from utils import audit_logger
 from utils.logger_handler import logger
-
-# 会读取敏感信息或修改电脑状态的工具，调用前必须由用户确认
-CONFIRM_TOOLS = {
-    "get_system_info": "查看系统信息",
-    "list_processes": "查看进程列表",
-    "write_text_file": "写入文件",
-    "create_directory": "创建目录",
-    "move_path": "移动或重命名",
-    "copy_path": "复制文件",
-    "delete_path": "删除文件或目录",
-    "run_command": "执行系统命令",
-    "open_path": "打开文件或网址",
-    "computer_use": "控制桌面（截图/鼠标/键盘/剪贴板/应用）",
-}
 
 # 人工确认中间件：命中 CONFIRM_TOOLS 的工具调用会挂起，等待 UI 提交 approve/reject
 _HITL_CONFIG: dict[str, Any] = {
@@ -65,9 +44,8 @@ hitl_middleware = HumanInTheLoopMiddleware(
     description_prefix="该操作会修改电脑状态，请确认参数后再决定是否执行",
 )
 
-# 工具调用的硬上限，防止模型陷入死循环；具体的每任务步数预算
+# 工具调用的硬上限由 agent/tool_registry.py 统一维护；具体每任务步数预算
 # 由任务卡 + 守卫层（agent/guard/state.py）控制，默认 30 步。
-TOOL_CALL_LIMIT = 100
 tool_limit_middleware = ToolCallLimitMiddleware(
     run_limit=TOOL_CALL_LIMIT,
     exit_behavior="continue",
@@ -114,19 +92,7 @@ class ReactAgent:
         self.agent = create_agent(
             model=chat_model,
             system_prompt=load_system_prompts(),
-            tools=[
-                # 电脑信息（只读）
-                get_system_info, list_directory, read_text_file,
-                search_files, search_text, list_processes,
-                # 电脑操作（需用户确认）
-                write_text_file, create_directory, move_path, copy_path,
-                delete_path, run_command, open_path,
-                # 桌面控制（OmniPilot 本地工具层；只读动作直接执行，其余需确认）
-                computer_use,
-                # 原有业务工具
-                get_weather, get_user_location, get_user_id, get_current_month,
-                fetch_external_data, fill_context_for_report, web_search_baidu,
-            ],
+            tools=AGENT_TOOLS,
             middleware=[
                 model_fallback_middleware,
                 # 预算/急停：在每次模型调用前短路，不再给模型新的决策机会

@@ -8,6 +8,8 @@
 > 代码实现：[agent/tools/os_tools.py](../agent/tools/os_tools.py)　桌面控制：[agent/tools/computer_use.py](../agent/tools/computer_use.py)　安全策略：[agent/tools/safety.py](../agent/tools/safety.py)　确认与事件：[agent/react_agent.py](../agent/react_agent.py)　界面：[app.py](../app.py)
 >
 > OmniPilot 桌面控制的完整接入故事、用法与风险，见 [OMNIPILOT_INTEGRATION_REPORT.md](OMNIPILOT_INTEGRATION_REPORT.md)。
+>
+> 当前动作数、规则条数、预算等数字见 [_generated/facts.md](_generated/facts.md)；本文只解释行为、参数与边界。
 
 ---
 
@@ -960,8 +962,8 @@ sensitive_dirs:
 | `_MAX_SEARCH_FILE_BYTES` | `os_tools.py` | 5 MB |
 | `_MAX_RESULT_CHARS` | `os_tools.py` | 8000 |
 | `_BACKUP_MAX_BYTES` | `safety.py` | 10 MB |
-| 危险命令黑名单 | `safety.py` | 28 条规则 |
-| `TOOL_CALL_LIMIT` | `react_agent.py` | 100 次/轮兜底（普通任务默认预算 30 步、桌面任务 60 步，见 `agent/guard/state.py`、`agent/guard/config.py`） |
+| 危险命令黑名单 | `safety.py` | 29 条规则 |
+| `TOOL_CALL_LIMIT` | `agent/tool_registry.py` | 100 次/轮兜底（普通任务默认预算 30 步、桌面任务 60 步，见 `agent/guard/state.py`、`agent/guard/config.py`） |
 | 重复动作拦截阈值 | `repeat_guard.py` | 同区域 60 px 内；第 3 次提醒、第 6 次拒绝 |
 | 发给模型的截图张数 | `config/agent.yml` 的 `vision_history.keep_recent_screenshots` | 默认 1；`-1` 不裁剪 |
 | 控件树上限 | `computer_use.py` | `_MAX_UI_NODES=120`、`_MAX_UI_TREE_CHARS=6000`、depth≤6 |
@@ -977,9 +979,10 @@ sensitive_dirs:
 
 ### 11.4 确认机制
 
-`agent/react_agent.py`：
+`agent/tool_registry.py` 定义确认清单，`agent/react_agent.py` 消费它：
 
 ```python
+# agent/tool_registry.py（节选；完整清单还含 get_system_info/list_processes）
 CONFIRM_TOOLS = {
     "write_text_file": "写入文件",
     "create_directory": "创建目录",
@@ -991,6 +994,7 @@ CONFIRM_TOOLS = {
     "computer_use": "控制桌面（截图/鼠标/键盘/剪贴板/应用）",
 }
 
+# agent/react_agent.py
 _HITL_CONFIG = {
     name: {"allowed_decisions": ["approve", "reject"]}
     for name in CONFIRM_TOOLS
@@ -1065,12 +1069,12 @@ hitl_middleware = HumanInTheLoopMiddleware(
 
 1. 在 `os_tools.py` 用 `@tool(description=...)` 定义函数，返回 `str`。
 2. 接路径的参数先调用 `guard_path()`，写操作传 `for_write=True`。
-3. 只读工具直接注册到 `react_agent.py` 的 `tools`。
-4. 有副作用的工具同时加入 `CONFIRM_TOOLS`；并在 `agent/guard/policy.py` 登记动作类别与 `reversibility_of`（R0–R3）。
+3. 只读/写工具注册到 `agent/tool_registry.py` 的对应列表（`OS_TOOLS` / `BUSINESS_TOOLS` / `AGENT_TOOLS`）。
+4. 有副作用的工具同时加入 `agent/tool_registry.py` 的 `CONFIRM_TOOLS`；并在 `agent/guard/policy.py` 登记动作类别与 `reversibility_of`（R0–R3）。
 5. 写成功后调用 `agent/guard/journal.py` 的 `record_*`，否则不能整批回滚。
 6. 在 `safety.py` 的 `describe_operation` / `operation_risk` / `operation_target` 补上人话模板。
 7. 更新 `prompts/main_prompt.txt` 的工具清单。
-8. 同步本文 11.1、README 能力表、ARCHITECTURE 第 7 节、`docs/small-business-p0/`、architecture.svg。
+8. 同步本文 11.1、README 能力表、ARCHITECTURE 第 7 节、`docs/small-business-p0/`、architecture.svg；最后运行 `scripts/sync_doc_facts.py` 更新数字。
 9. 桌面类动作加到 `agent/tools/computer_use.py`：在 `_ACTION_PARAMS` / `_REQUIRED_PARAMS` / `_tool_instance` / `_prepare_arguments` 登记，并判断是否加入 `READ_ONLY_ACTIONS`；同时在 `safety.py` 的 `_describe_computer_use` / `_computer_use_risk` / `_computer_use_target` 补人话文案。
 
 ### 11.8 测试

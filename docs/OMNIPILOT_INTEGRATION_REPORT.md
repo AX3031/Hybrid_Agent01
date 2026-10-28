@@ -7,6 +7,7 @@
 > **阅读时间**：约 15–20 分钟。
 >
 > **本次改动状态**：代码、提示词、文档均已完成并验证，已随 `1efa07f feat: add OmniPilot-powered computer_use desktop tool` 提交。
+> 本文是接入时的快照（当时 18 个动作）；当前工具/动作/用例数字见 [_generated/facts.md](_generated/facts.md)。
 
 ---
 
@@ -485,11 +486,11 @@ uv run streamlit run app.py
 
 **方式一：只在 Agent 里停用（推荐，最快）**
 
-打开 `agent/react_agent.py`，把 `tools` 列表里的 `computer_use` 删掉，同时把 `CONFIRM_TOOLS` 里的 `"computer_use"` 和 `_HITL_CONFIG["computer_use"]` 的 `when` 删掉。这样模型就看不到这个工具了。
+打开 `agent/tool_registry.py`，把 `AGENT_TOOLS` 里的 `computer_use` 删掉，同时把 `CONFIRM_TOOLS` 里的 `"computer_use"` 和 `agent/react_agent.py` 里 `_HITL_CONFIG["computer_use"]` 的 `when` 删掉。这样模型就看不到这个工具了。
 
 **方式二：删掉工具文件**
 
-删除 `agent/tools/computer_use.py`，并删掉 `react_agent.py` 里的 import 和注册。
+删除 `agent/tools/computer_use.py`，并删掉 `agent/tool_registry.py` 里的 import 和注册（以及 `agent/react_agent.py` 的 HITL 配置）。
 
 **方式三：卸载依赖**
 
@@ -666,7 +667,7 @@ uv remove omnipilot-agent
 | 文件 | 改了什么 |
 | --- | --- |
 | `agent/tools/computer_use.py` | **新增**。一个工具、18 个动作、参数校验、安全检查、截图图片回传、应用/进程黑名单 |
-| `agent/react_agent.py` | 注册 `computer_use`；加入 `CONFIRM_TOOLS`；用 `when` 谓词按动作确认；工具结果日志脱敏 |
+| `agent/tool_registry.py` | 注册 `computer_use`；加入 `CONFIRM_TOOLS`；`agent/react_agent.py` 用 `when` 谓词按动作确认；工具结果日志脱敏 |
 | `agent/tools/safety.py` | 新增 `summarize_content_for_log`、`sanitize_tool_args`、`sanitize_tool_result`；新增桌面动作的人话解释 |
 | `agent/tools/middleware.py` | 兼容图片列表结果；审计日志脱敏；修复 `log_before_model` 崩溃 |
 | `app.py` | 确认卡片文案改为“修改文件、设置或控制界面” |
